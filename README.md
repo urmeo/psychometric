@@ -4,7 +4,7 @@
 
 ## Overview
 
-English/French questionnaires: **5 instruments, 88 items**. [Open app](https://urmeo.github.io/Psychometric/), or open `index.html` locally. No build or server.
+English/French questionnaires: **5 instruments, 88 items**. [Open app](https://urmeo.github.io/psychometric/), or open `index.html` locally. No build or server.
 
 ### Data flow
 
