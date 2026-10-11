@@ -11,4 +11,4 @@
 
 Original forms remain in [English](docs/english/) and [French](docs/french/). The English FQ note lists six anxiety/depression items but a 0–40 range. Scoring uses five fixed items; optional other feelings stay separate.
 
-Bundled libraries: Bootstrap **5.1.3** and jsPDF **4.2.1**, MIT. Their original copyright/license headers remain in `lib/`. `npm run check:vendor` verifies jsPDF against its locked package.
+Bundled libraries: Bootstrap **5.1.3** and jsPDF **4.2.1**, MIT. Their original copyright/license headers remain in `assets/vendor/`. `npm run check:vendor` verifies jsPDF against its locked package.

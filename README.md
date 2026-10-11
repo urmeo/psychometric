@@ -48,6 +48,14 @@ Unsupported PDF characters export intact as UTF-8 CSV.
 | Downloads | CSV/Blob, jsPDF |
 | Checks | Node.js, Puppeteer |
 
+## Files
+
+- `en/` and `fr/`: language entry pages.
+- `assets/`: application code, styles, translations and bundled libraries.
+- `docs/`: instrument references.
+- `outputs/`: interface screenshots.
+- `scripts/` and `tests/`: verification.
+
 ## Verify
 
 Node **22.12+**.
