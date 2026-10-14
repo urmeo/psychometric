@@ -135,6 +135,32 @@ p {
   margin-bottom: 20px;
 }
 
+.persistence-panel {
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 12px 15px;
+  margin-bottom: 20px;
+  background-color: var(--color-light-bg);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.persistence-panel p {
+  margin-bottom: 8px;
+}
+
+.persistence-panel .btn {
+  margin-top: 8px;
+  margin-right: 8px;
+  white-space: normal;
+}
+
+.persistence-warning {
+  border-color: var(--color-warning);
+  border-left-width: 4px;
+  background-color: #fff8e1;
+}
+
 .interp-normal {
   color: #155724;
   background-color: #d4edda;
@@ -196,7 +222,7 @@ p {
 }
 
 @media print {
-  .btn, #progress-container, #setup-area { display: none; }
+  .btn, #progress-container, #setup-area, #persistence-area { display: none; }
   .interp-normal, .interp-moderate, .interp-abnormal {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
