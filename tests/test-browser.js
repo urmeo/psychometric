@@ -120,6 +120,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   C.tests[0].questions[0].scores[0] = originalScore;
   localStorage.setItem(C.storageKey, "{");
   assert(T.loadProgress() === null, "malformed JSON cannot resume");
+  await T.whenPersistenceSettled();
   assert(localStorage.getItem(C.storageKey) === null, "malformed save is removed");
 
   state.tests = C.tests.filter(function (test) { return test.name === "HADS"; });
@@ -169,6 +170,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   localStorage.setItem(C.storageKey, JSON.stringify(valid));
   T.showResumeScreen(valid);
   document.getElementById("resumeBtn").click();
+  await T.whenPersistenceSettled();
   assert(state.answers.length === 2 && state.currentQuestionIndex === 2, "resume loads validated answers and cursor");
   assert(document.querySelector("#test-area .question").textContent === C.tests[0].questions[2].q, "resume displays correct next question");
   var longIdSave = clone(valid);
@@ -182,6 +184,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   localStorage.setItem("psychometric_progress_fr", "fr-snapshot");
   localStorage.setItem("psychometric-unrelated-test", "keep");
   document.getElementById("clearDataBtn").click();
+  await T.whenPersistenceSettled();
   oldResume.click();
   assert(!document.getElementById("resumeBtn"), "Clear removes the stale Resume prompt");
   assert(!!document.getElementById("participantIdInput"), "Clear returns to setup");
@@ -193,12 +196,13 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   localStorage.removeItem("psychometric-unrelated-test");
 
   var clearKeys = ["psychometric_progress_en", "psychometric_progress_fr", C.storageKey];
-  ["remove throws", "remove silently fails", "verification throws"].forEach(function (failure) {
-    clearKeys.forEach(function (failedKey) {
+  for (var failure of ["remove throws", "remove silently fails", "verification throws"]) {
+    for (var failedKey of clearKeys) {
       clearKeys.forEach(function (key) { localStorage.setItem(key, "saved responses"); });
       localStorage.setItem(C.storageKey, JSON.stringify(valid));
       T.showResumeScreen(valid);
       document.getElementById("resumeBtn").click();
+      await T.whenPersistenceSettled();
       var originalRemove = Storage.prototype.removeItem;
       var originalGet = Storage.prototype.getItem;
       var removalAttempts = [];
@@ -217,6 +221,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
       };
       try {
         document.getElementById("clearDataBtn").click();
+        await T.whenPersistenceSettled();
         var clearStatus = document.querySelector('#setup-area [role="status"]');
         assert(!!clearStatus && clearStatus.textContent === C.ui.alertClearDataFail && clearStatus.textContent !== C.ui.dataCleared, "Clear reports localized failure: " + label);
         assert(clearKeys.every(function (key) { return removalAttempts.indexOf(key) !== -1; }), "Clear attempts all saves after failure: " + label);
@@ -230,10 +235,10 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
       if (failure !== "verification throws") {
         assert(localStorage.getItem(failedKey) !== null, "failed Clear still has saved responses: " + label);
       }
-      T.clearAllData();
+      await T.clearAllData();
       assert(clearKeys.every(function (key) { return localStorage.getItem(key) === null; }) && document.querySelector('#setup-area [role="status"]').textContent === C.ui.dataCleared, "Clear retry succeeds after storage recovers: " + label);
-    });
-  });
+    }
+  }
 
   localStorage.setItem(C.storageKey, JSON.stringify(valid));
   T.showResumeScreen(valid);
@@ -245,6 +250,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   localStorage.setItem(C.storageKey, JSON.stringify(valid));
   T.showResumeScreen(valid);
   document.getElementById("resumeBtn").click();
+  await T.whenPersistenceSettled();
   window.dispatchEvent(new StorageEvent("storage", { key: "unrelated", newValue: null, storageArea: localStorage }));
   assert(state.testInProgress && state.answers.length === 2, "unrelated storage removal does not reset this session");
   var otherKey = C.lang === "en" ? "psychometric_progress_fr" : "psychometric_progress_en";
@@ -253,6 +259,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   localStorage.removeItem(C.storageKey);
   document.getElementById("option0").click();
   document.getElementById("nextBtn").click();
+  await T.whenPersistenceSettled();
   assert(state.answers.length === 0 && localStorage.getItem(C.storageKey) === null && !!document.getElementById("participantIdInput"), "Next before storage-event delivery cannot restore cleared answers");
 
 
@@ -268,6 +275,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   localStorage.setItem(C.storageKey, JSON.stringify(valid));
   T.showResumeScreen(valid);
   document.getElementById("resumeBtn").click();
+  await T.whenPersistenceSettled();
   window.dispatchEvent(new StorageEvent("storage", { key: null, newValue: null, storageArea: sessionStorage }));
   assert(state.testInProgress && state.answers.length === 2, "sessionStorage clear does not reset local progress");
   localStorage.clear();
@@ -287,14 +295,17 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   assert(state.answers.length === 0, "rejected save never contaminates live answers");
   Array.prototype.forEach.call(document.querySelectorAll(".test-checkbox"), function (checkbox) { checkbox.checked = checkbox.value === "0"; });
   document.getElementById("nextBtn").click();
+  await T.whenPersistenceSettled();
   assert(state.answers.length === 0 && state.testInProgress, "new session starts clean after rejected resume");
   assertThrows(T.calculateSummaryScores, "new incomplete session cannot score as normal");
   await new Promise(function (resolve) { setTimeout(resolve, 320); });
   document.getElementById("option0").click();
   document.getElementById("nextBtn").click();
+  await T.whenPersistenceSettled();
   assert(state.answers.length === 1 && !!localStorage.getItem(C.storageKey), "active answer creates resumable progress");
   document.getElementById("clearDataBtn").click();
-  T.saveProgress();
+  await T.whenPersistenceSettled();
+  await T.saveProgress();
   assert(state.answers.length === 0 && localStorage.getItem(C.storageKey) === null, "Clear during progress stops the old session from saving again");
   assert(document.getElementById("results-area").classList.contains("hidden") && document.getElementById("download-buttons").classList.contains("hidden"), "Clear hides old results and exports");
 
@@ -317,13 +328,14 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   assert(T.recordAnswer(), "FQ descriptive question records its numeric option");
   assert(state.answers[0].description === entered && state.answers[0].optionIndex === 2, "description and option identity stay separate");
   state.currentQuestionIndex = 1;
-  T.saveProgress();
+  await T.saveProgress();
   var descriptionSave = T.loadProgress();
   assert(!!descriptionSave && descriptionSave.answers[0].description === entered, "description survives saved-session validation");
   T.showResumeScreen(descriptionSave);
   document.getElementById("resumeBtn").click();
+  await T.whenPersistenceSettled();
   assert(state.answers[0].description === entered, "description survives resume");
-  T.clearAllData();
+  await T.clearAllData();
 
   T.resetState();
   state.tests = C.tests.filter(function (test) { return test.name === "STAI-S"; });
@@ -441,6 +453,6 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   state.answers.pop();
   assertThrows(T.buildCSV, "incomplete answers cannot be exported as CSV");
   assertThrows(T.buildPDF, "incomplete answers cannot be exported as PDF");
-  T.clearAllData();
+  await T.clearAllData();
   C.storageKey = originalKey;
 }

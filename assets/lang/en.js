@@ -11,6 +11,21 @@ window.CONFIG = {
     downloadCsvBtn: "Download CSV",
     downloadPdfBtn: "Download PDF",
     clearDataBtn: "Clear app data",
+    progressSaving: "Saving submitted answers...",
+    progressSaved: "Submitted answers are confirmed saved in this browser. Answers are saved after you select Next.",
+    progressCompleted: "Session complete. Download CSV or PDF to keep your responses before leaving or reloading this page.",
+    progressCompletedClearFailed: "Session complete. The saved draft could not be removed or verified. Download CSV or PDF to keep your responses before leaving or reloading this page.",
+    progressCompletedConflict: "Session complete. Another tab changed the saved session, so it was left untouched. Download CSV or PDF to keep this tab's responses before leaving or reloading this page.",
+    progressSaveFailed: "Your latest submitted answers are not confirmed saved. Download a progress backup before reloading or closing this tab, and try saving again.",
+    progressConflict: "Another tab changed the saved session. This tab will not replace it. Download a progress backup, then reload to resume the saved version.",
+    progressStorageUnavailable: "Safe automatic saving is unavailable in this browser. You can continue in this tab. Download a progress backup before reloading or closing it.",
+    retrySaveBtn: "Try saving again",
+    downloadBackupBtn: "Download progress backup",
+    restoreBackupLabel: "Restore progress backup (JSON)",
+    backupDownloadFailed: "The progress backup could not be downloaded. Please try again before reloading or closing this tab.",
+    invalidBackup: "This progress backup is invalid or incompatible. Use a backup from the same language and questionnaire configuration.",
+    backupRestoreConflict: "A saved session already exists. Resume it, or explicitly clear app data before restoring a progress backup.",
+    backupRestored: "Progress backup restored in this tab. Check the saving status before reloading or closing it.",
     dataCleared: "Current session and saved English/French sessions cleared. Downloaded reports are not deleted.",
     alertClearDataFail: "Current session ended, but saved data could not be fully cleared or verified. Responses may remain in this browser. Please try again or clear this site's data in your browser settings. Downloaded reports are not deleted.",
     consent:
@@ -93,6 +108,7 @@ window.CONFIG = {
   export: {
     csvFilename: "Psychometric_Test_Results.csv",
     pdfFilename: "Psychometric_Test_Results.pdf",
+    backupFilename: "Psychometric_Progress_Backup.json",
   },
 
   subscaleLabels: {

@@ -61,7 +61,7 @@ function pdfText(stream) {
 
 async function verifyActualDownloads(page, directory) {
   const expected = await page.evaluate(() => window.__TEST__.prepareDownloadFixture());
-  await page.click("#downloadCsv");
+  await page.locator("#downloadCsv").click();
   const csv = await waitForDownload(directory, expected.filenames.csvFilename);
   assert.deepEqual([...csv.subarray(0, 3)], [0xEF, 0xBB, 0xBF], "actual CSV has UTF-8 BOM");
   const rows = parseCSV(csv.toString("utf8"));
@@ -93,7 +93,7 @@ async function verifyActualDownloads(page, directory) {
     }
   }
 
-  await page.click("#downloadPdf");
+  await page.locator("#downloadPdf").click();
   const pdf = await waitForDownload(directory, expected.filenames.pdfFilename);
   assert.equal(pdf.subarray(0, 5).toString("ascii"), "%PDF-", "actual PDF header");
   assert.ok(pdf.toString("latin1").trimEnd().endsWith("%%EOF"), "actual PDF is complete");
@@ -174,6 +174,7 @@ async function runTestFile(browser, { file, label }) {
     });
     let totalFailed = 0;
     for (const testFile of TEST_FILES) totalFailed += await runTestFile(browser, testFile);
+    totalFailed += await require("./test-persistence")(browser);
     await browser.close();
     console.log(totalFailed === 0 ? "\nAll tests and actual downloads passed." : `\n${totalFailed} test/download gates failed.`);
     process.exit(totalFailed === 0 ? 0 : 1);

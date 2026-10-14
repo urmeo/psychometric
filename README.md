@@ -14,6 +14,7 @@ flowchart LR
     B --> C[Keyed scoring and score ranges]
     C --> D[CSV / PDF download]
     B <--> E[Saved progress: localStorage]
+    B <--> F[Progress backup: JSON file]
 ```
 
 ## Instruments
@@ -31,7 +32,10 @@ STAI: English **Form X-1/X-2**, French **Form Y-1/Y-2**; keys differ. French BFI
 ## Features
 
 - Choose instrument combinations.
-- Resume progress; clear ends the session and removes both language saves.
+- Resume saved progress, with visible saving, saved, failure and tab-conflict status. Responses are submitted with Next; an option or description still being edited is not saved progress.
+- Download a JSON progress backup during an unfinished session, then restore it from setup using the same language and questionnaire configuration. Restoration validates the session and does not replace an existing browser save; resume or explicitly clear that save first.
+- Check for a competing saved revision before writing. A conflicting tab keeps its answers available for backup and stops replacing the browser save.
+- Clear ends the session and removes both language saves; a failure to delete or verify deletion is reported.
 - CSV/PDF: responses, descriptions, scores, forms, revision, timestamps.
 
 Unsupported PDF characters export intact as UTF-8 CSV.
@@ -66,11 +70,14 @@ npm run check:vendor
 npm test
 ```
 
+To check persistence in the browser, submit an answer with Next and confirm the saved status. Block storage writes and submit another answer: a failure status should appear with retry and JSON backup controls. Restore that backup on the same language page after explicitly clearing any existing save. Open the same saved session in two tabs, submit in one and then the other, and confirm the second tab reports a conflict while the first tab's saved revision remains intact. If safe automatic saving is unavailable, confirm that the status directs the participant to keep the tab open and download a backup.
+
 ## Limits
 
 1. No diagnosis: HADS screens, BFI describes, STAI/FQ report raw scores.
 2. Use coded IDs. Saved progress and exports contain sensitive responses; clearing saves leaves downloads.
 3. [MIT](LICENSE) covers software only. STAI/HADS require permission; see [instrument rights](NOTICE.md).
+4. Browser storage can fail or be cleared. Only a confirmed saved status establishes that the latest submitted answers were read back from this browser's storage. Keep a JSON backup before closing or reloading a tab when saving fails, conflicts, or is unavailable. Backups contain the participant ID and submitted responses and are separate from scored CSV/PDF reports.
 
 ## References
 

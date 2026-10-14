@@ -13,6 +13,21 @@ window.CONFIG = {
     downloadCsvBtn: "T\u00e9l\u00e9charger CSV",
     downloadPdfBtn: "T\u00e9l\u00e9charger PDF",
     clearDataBtn: "Effacer les données de l'application",
+    progressSaving: "Enregistrement des réponses validées...",
+    progressSaved: "Les réponses validées sont bien enregistrées dans ce navigateur. Elles sont enregistrées après avoir sélectionné Suivant.",
+    progressCompleted: "Session terminée. Téléchargez le CSV ou le PDF pour conserver vos réponses avant de quitter ou de recharger cette page.",
+    progressCompletedClearFailed: "Session terminée. Le brouillon enregistré n'a pas pu être supprimé ou sa suppression n'a pas pu être vérifiée. Téléchargez le CSV ou le PDF pour conserver vos réponses avant de quitter ou de recharger cette page.",
+    progressCompletedConflict: "Session terminée. Un autre onglet a modifié la session enregistrée, qui a donc été laissée intacte. Téléchargez le CSV ou le PDF pour conserver les réponses de cet onglet avant de quitter ou de recharger cette page.",
+    progressSaveFailed: "L'enregistrement de vos dernières réponses validées n'est pas confirmé. Téléchargez une sauvegarde avant de recharger ou de fermer cet onglet, puis réessayez l'enregistrement.",
+    progressConflict: "Un autre onglet a modifié la session enregistrée. Cet onglet ne la remplacera pas. Téléchargez une sauvegarde, puis rechargez la page pour reprendre la version enregistrée.",
+    progressStorageUnavailable: "L'enregistrement automatique sécurisé est indisponible dans ce navigateur. Vous pouvez continuer dans cet onglet. Téléchargez une sauvegarde avant de le recharger ou de le fermer.",
+    retrySaveBtn: "Réessayer l'enregistrement",
+    downloadBackupBtn: "Télécharger une sauvegarde",
+    restoreBackupLabel: "Restaurer une sauvegarde (JSON)",
+    backupDownloadFailed: "Le téléchargement de la sauvegarde a échoué. Réessayez avant de recharger ou de fermer cet onglet.",
+    invalidBackup: "Cette sauvegarde est invalide ou incompatible. Utilisez une sauvegarde de la même langue et de la même configuration des questionnaires.",
+    backupRestoreConflict: "Une session enregistrée existe déjà. Reprenez-la ou effacez explicitement les données de l'application avant de restaurer une sauvegarde.",
+    backupRestored: "Sauvegarde restaurée dans cet onglet. Vérifiez l'état de l'enregistrement avant de le recharger ou de le fermer.",
     dataCleared: "Session actuelle et sessions françaises/anglaises enregistrées effacées. Les rapports téléchargés ne sont pas supprimés.",
     alertClearDataFail: "La session actuelle est terminée, mais l'effacement de toutes les données enregistrées n'a pas pu être confirmé. Des réponses peuvent rester dans ce navigateur. Réessayez ou effacez les données de ce site dans les paramètres du navigateur. Les rapports téléchargés ne sont pas supprimés.",
     consent:
@@ -95,6 +110,7 @@ window.CONFIG = {
   export: {
     csvFilename: "Resultats_Psychometriques_Fr.csv",
     pdfFilename: "Resultats_Psychometriques_Fr.pdf",
+    backupFilename: "Sauvegarde_Progression_Psychometrique_Fr.json",
   },
 
   subscaleLabels: {
