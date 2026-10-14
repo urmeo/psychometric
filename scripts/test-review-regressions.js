@@ -375,7 +375,10 @@ module.exports = async function runReviewRegressions(browser) {
       const protectedSave = await page.evaluate(() => ({ raw: localStorage.getItem(window.CONFIG.storageKey), status: document.getElementById("persistence-status").textContent, expected: window.CONFIG.ui.progressConflict }));
       assert.equal(protectedSave.raw, records.newer, `${lang}: prompt cannot clear an unseen competing revision`);
       assert.equal(protectedSave.status, protectedSave.expected, `${lang}: prompt explains the competing revision`);
-      await page.evaluate(() => document.getElementById("resumeBtn").click());
+      await page.evaluate(async () => {
+        document.getElementById("resumeBtn").click();
+        await window.__TEST__.whenPersistenceSettled();
+      });
       assert.equal(await page.evaluate(() => window.__TEST__.state.answers.length), 2, `${lang}: stale prompt can resume the latest saved draft`);
 
       // Direct callers with only a parsed session must also refuse a different raw record.
@@ -388,7 +391,7 @@ module.exports = async function runReviewRegressions(browser) {
       await page.evaluate(() => window.__TEST__.whenPersistenceSettled());
       assert.equal(await page.evaluate(() => localStorage.getItem(window.CONFIG.storageKey)), records.newer, `${lang}: parsed-session prompt refuses to clear a different record`);
 
-      const unavailable = await page.evaluate((newer) => {
+      const unavailable = await page.evaluate(async (newer) => {
         window.__TEST__.resetState();
         window.__TEST__.showResumeScreen(JSON.parse(newer));
         const incompatible = JSON.parse(newer);
@@ -396,6 +399,7 @@ module.exports = async function runReviewRegressions(browser) {
         const raw = JSON.stringify(incompatible);
         localStorage.setItem(window.CONFIG.storageKey, raw);
         document.getElementById("resumeBtn").click();
+        await window.__TEST__.whenPersistenceSettled();
         return {
           original: raw,
           current: localStorage.getItem(window.CONFIG.storageKey),
@@ -406,7 +410,12 @@ module.exports = async function runReviewRegressions(browser) {
       assert.equal(unavailable.current, unavailable.original, `${lang}: stale Resume retains newly incompatible saved responses`);
       assert.equal(unavailable.backupVisible, true, `${lang}: stale Resume offers backup of newly incompatible saved responses`);
       assert.equal(unavailable.startVisible, false, `${lang}: incompatible saved responses require explicit clearing before setup`);
-      await page.evaluate(() => window.__TEST__.clearAllData());
+      // The direct incompatible-record mutation models a legacy writer. Remove
+      // its deliberately stale coordination fixture before cleaning up.
+      await page.evaluate(async () => {
+        await window.__TEST__.resetAuthorityForFixture(window.CONFIG.storageKey);
+        await window.__TEST__.clearAllData();
+      });
       await page.close();
       console.log(`  ${lang}: load/render interleaving cannot delete unseen responses; latest draft remains resumable.`);
       await memoryOnlyClearCases(context, origin, lang);

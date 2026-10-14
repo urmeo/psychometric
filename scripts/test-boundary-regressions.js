@@ -175,6 +175,7 @@ async function deniedDownloadCase(context, origin, lang, directory) {
   await page.evaluate(async () => {
     const T = window.__TEST__, C = window.CONFIG;
     await T.clearAllData();
+    await T.resetAuthorityForFixture(C.storageKey);
     const test = C.tests.find((item) => item.name === "HADS");
     const start = Date.now() - 600000;
     const saved = {
@@ -191,6 +192,7 @@ async function deniedDownloadCase(context, origin, lang, directory) {
     localStorage.setItem(C.storageKey, JSON.stringify(saved));
     T.showResumeScreen(saved);
     document.getElementById("resumeBtn").click();
+    await T.whenPersistenceSettled();
     const set = Storage.prototype.setItem;
     window.restoreAuditStorage = () => { Storage.prototype.setItem = set; };
     Storage.prototype.setItem = function (key) {

@@ -1,6 +1,10 @@
 async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows, clone) {
   var originalKey = C.storageKey;
   C.storageKey += "-tests";
+  async function storeLegacySession(saved) {
+    await T.resetAuthorityForFixture();
+    localStorage.setItem(C.storageKey, typeof saved === "string" ? saved : JSON.stringify(saved));
+  }
   var startTime = "2026-01-01T00:00:00.000Z";
   function savedSession(names, testIndex, questionIndex) {
     var answers = [];
@@ -147,7 +151,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   C.tests[0].questions[0].scores[0] = 999;
   assert(T.validateSession(valid) === null, "resume rejects changed live item scoring");
   C.tests[0].questions[0].scores[0] = originalScore;
-  localStorage.setItem(C.storageKey, "{");
+  await storeLegacySession("{");
   assert(T.loadProgress() === null, "malformed JSON cannot resume");
   await T.whenPersistenceSettled();
   assert(localStorage.getItem(C.storageKey) === "{", "malformed save remains unchanged for backup and explicit clearing");
@@ -155,7 +159,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
     var incompatible = clone(valid);
     invalidCases.filter(function (entry) { return entry[0] === preservedCase; })[0][1](incompatible);
     var incompatibleRaw = JSON.stringify(incompatible);
-    localStorage.setItem(C.storageKey, incompatibleRaw);
+    await storeLegacySession(incompatibleRaw);
     assert(T.loadProgress() === null, "unavailable draft cannot resume: " + preservedCase);
     await T.whenPersistenceSettled();
     assert(localStorage.getItem(C.storageKey) === incompatibleRaw, "unavailable draft is preserved exactly: " + preservedCase);
@@ -208,7 +212,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   });
   assert(T.validateConfig(null).length > 0, "config rejects null without throwing");
 
-  localStorage.setItem(C.storageKey, JSON.stringify(valid));
+  await storeLegacySession(valid);
   T.showResumeScreen(valid);
   document.getElementById("resumeBtn").click();
   await T.whenPersistenceSettled();
@@ -220,7 +224,9 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   assert(document.documentElement.scrollWidth <= window.innerWidth, "resume wraps long unbroken participant ID");
   T.showResumeScreen(valid);
   var oldResume = document.getElementById("resumeBtn");
-  localStorage.setItem(C.storageKey, JSON.stringify(valid));
+  await storeLegacySession(valid);
+  await T.resetAuthorityForFixture("psychometric_progress_en");
+  await T.resetAuthorityForFixture("psychometric_progress_fr");
   localStorage.setItem("psychometric_progress_en", "en-snapshot");
   localStorage.setItem("psychometric_progress_fr", "fr-snapshot");
   localStorage.setItem("psychometric-unrelated-test", "keep");
@@ -239,6 +245,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   var clearKeys = ["psychometric_progress_en", "psychometric_progress_fr", C.storageKey];
   for (var failure of ["remove throws", "remove silently fails", "verification throws"]) {
     for (var failedKey of clearKeys) {
+      for (var clearKey of clearKeys) await T.resetAuthorityForFixture(clearKey);
       clearKeys.forEach(function (key) { localStorage.setItem(key, "saved responses"); });
       localStorage.setItem(C.storageKey, JSON.stringify(valid));
       T.showResumeScreen(valid);
@@ -281,14 +288,16 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
     }
   }
 
-  localStorage.setItem(C.storageKey, JSON.stringify(valid));
+  await storeLegacySession(valid);
   T.showResumeScreen(valid);
   var externalResume = document.getElementById("resumeBtn");
   localStorage.removeItem(C.storageKey);
   window.dispatchEvent(new StorageEvent("storage", { key: C.storageKey, newValue: null, storageArea: localStorage }));
+  await T.whenPersistenceSettled();
   externalResume.click();
+  await T.whenPersistenceSettled();
   assert(state.answers.length === 0 && !!document.getElementById("participantIdInput"), "external storage removal invalidates detached Resume closure");
-  localStorage.setItem(C.storageKey, JSON.stringify(valid));
+  await storeLegacySession(valid);
   T.showResumeScreen(valid);
   document.getElementById("resumeBtn").click();
   await T.whenPersistenceSettled();
@@ -301,10 +310,11 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   document.getElementById("option0").click();
   document.getElementById("nextBtn").click();
   await T.whenPersistenceSettled();
-  assert(state.answers.length === 0 && localStorage.getItem(C.storageKey) === null && !!document.getElementById("participantIdInput"), "Next before storage-event delivery cannot restore cleared answers");
+  assert(state.answers.length === 2 && localStorage.getItem(C.storageKey) === null && document.getElementById("nextBtn").disabled, "unexplained missing save preserves submitted answers and blocks replacing browser data");
+  assert(JSON.parse(T.buildProgressBackup()).answers.length === 2 && document.getElementById("persistence-status").textContent === C.ui.progressConflict, "unexplained missing save offers intact progress backup and conflict feedback");
 
 
-  localStorage.setItem(C.storageKey, JSON.stringify(valid));
+  await storeLegacySession(valid);
   T.showResumeScreen(valid);
   var clearedResume = document.getElementById("resumeBtn");
   localStorage.clear();
@@ -313,7 +323,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   clearedResume.click();
   assert(state.answers.length === 0 && !!document.getElementById("participantIdInput"), "external storage clear invalidates detached Resume closure");
 
-  localStorage.setItem(C.storageKey, JSON.stringify(valid));
+  await storeLegacySession(valid);
   T.showResumeScreen(valid);
   document.getElementById("resumeBtn").click();
   await T.whenPersistenceSettled();

@@ -402,8 +402,9 @@ async function staleStartNewCase(context, origin, lang) {
 }
 
 async function seedNearCompletion(page, allTests = false) {
-  await page.evaluate((includeAllTests) => {
+  await page.evaluate(async (includeAllTests) => {
     const T = window.__TEST__, C = window.CONFIG;
+    await T.resetAuthorityForFixture();
     const tests = includeAllTests ? C.tests : C.tests.filter((item) => item.name === "HADS");
     const test = tests[tests.length - 1];
     const start = Date.now() - 600000;
@@ -686,10 +687,11 @@ async function incompatibleCompletedRecoveryCase(context, origin, lang) {
   await page.evaluate(() => window.__TEST__.clearAllData());
   await seedNearCompletion(page);
   await answer(page, 0);
-  const original = await page.evaluate(() => {
+  const original = await page.evaluate(async () => {
     const saved = JSON.parse(localStorage.getItem(window.CONFIG.storageKey));
     saved.revision = "obsolete";
     const raw = JSON.stringify(saved);
+    await window.__TEST__.resetAuthorityForFixture();
     localStorage.setItem(window.CONFIG.storageKey, raw);
     return raw;
   });
@@ -722,6 +724,7 @@ async function incompatibleCompletedRecoveryCase(context, origin, lang) {
     HTMLAnchorElement.prototype.click = function () { filename = this.download; };
     try {
       document.getElementById("downloadStoredBackup").click();
+      await window.__TEST__.whenPersistenceSettled();
       return { text: blob && await blob.text(), filename, expectedFilename: window.CONFIG.export.backupFilename };
     } finally {
       URL.createObjectURL = create;
@@ -735,10 +738,13 @@ async function incompatibleCompletedRecoveryCase(context, origin, lang) {
   await settled(page);
   assert.equal((await status(page)).raw, null, `${lang}: explicit clear-and-start removes incompatible completed record`);
   assert.ok(await page.$("#participantIdInput"), `${lang}: explicit incompatible-record clear returns to setup`);
-  await page.evaluate((raw) => localStorage.setItem(window.CONFIG.storageKey, raw), original);
+  await page.evaluate(async (raw) => {
+    await window.__TEST__.resetAuthorityForFixture();
+    localStorage.setItem(window.CONFIG.storageKey, raw);
+  }, original);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#downloadStoredBackup");
-  const externalClear = await page.evaluate(() => {
+  const externalClear = await page.evaluate(async () => {
     const oldBackup = document.getElementById("downloadStoredBackup");
     localStorage.removeItem(window.CONFIG.storageKey);
     const create = URL.createObjectURL;
@@ -747,10 +753,13 @@ async function incompatibleCompletedRecoveryCase(context, origin, lang) {
     let promptPresent, setupPresent;
     try {
       oldBackup.click();
+      await window.__TEST__.whenPersistenceSettled();
       promptPresent = !!document.getElementById("downloadStoredBackup");
       setupPresent = !!document.getElementById("participantIdInput");
       window.dispatchEvent(new StorageEvent("storage", { key: window.CONFIG.storageKey, newValue: null, storageArea: localStorage }));
+      await window.__TEST__.whenPersistenceSettled();
       oldBackup.click();
+      await window.__TEST__.whenPersistenceSettled();
     }
     finally { URL.createObjectURL = create; }
     return { downloads, promptPresent, setupPresent };
@@ -768,7 +777,7 @@ async function unavailableDraftRecoveryCases(context, origin, lang) {
     await page.evaluate(() => window.__TEST__.clearAllData());
     await start(page, "retained draft " + variant);
     await answer(page, 2);
-    const original = await page.evaluate((reason) => {
+    const original = await page.evaluate(async (reason) => {
       const C = window.CONFIG;
       const saved = JSON.parse(localStorage.getItem(C.storageKey));
       if (reason === "legacy") delete saved.version;
@@ -784,6 +793,7 @@ async function unavailableDraftRecoveryCases(context, origin, lang) {
         });
       }
       const raw = reason === "malformed" ? '\n{"answers":[{"description":"recoverable text"}]' : JSON.stringify(saved, null, 2) + "\n";
+      await window.__TEST__.resetAuthorityForFixture();
       localStorage.setItem(C.storageKey, raw);
       return raw;
     }, variant);
@@ -814,6 +824,7 @@ async function unavailableDraftRecoveryCases(context, origin, lang) {
       HTMLAnchorElement.prototype.click = function () { };
       try {
         document.getElementById("downloadStoredBackup").click();
+        await window.__TEST__.whenPersistenceSettled();
         return blob && await blob.text();
       } finally {
         URL.createObjectURL = originalCreate;
@@ -843,7 +854,10 @@ async function unavailableDraftRecoveryCases(context, origin, lang) {
     assert.equal(denied.text, denied.expected, `${lang}: ${variant} silent clear failure is reported`);
     assert.equal(denied.backupPresent, true, `${lang}: ${variant} failed clear keeps backup available`);
     const otherKey = lang === "en" ? "psychometric_progress_fr" : "psychometric_progress_en";
-    await page.evaluate((key) => localStorage.setItem(key, "other language save"), otherKey);
+    await page.evaluate(async (key) => {
+      await window.__TEST__.resetAuthorityForFixture(key);
+      localStorage.setItem(key, "other language save");
+    }, otherKey);
     await click(page, "#newSessionBtn");
     await settled(page);
     assert.equal((await status(page)).raw, null, `${lang}: ${variant} explicit clear removes original save`);
@@ -896,7 +910,10 @@ async function missingLocksCase(browser, origin, lang) {
     assert.equal(finished.text, finished.expected.completedStorageUnavailable, `${lang}: completed results explain unavailable browser recovery`);
     assert.equal(finished.backup.status, "completed", `${lang}: missing Web Locks offers finished-result backup`);
     assert.equal(finished.backup.answers.length, 14, `${lang}: missing Web Locks preserves final answer in completed backup`);
-    await page.evaluate(() => localStorage.setItem(window.CONFIG.storageKey, "old saved responses"));
+    await page.evaluate(async () => {
+      await window.__TEST__.resetAuthorityForFixture();
+      localStorage.setItem(window.CONFIG.storageKey, "old saved responses");
+    });
     await page.evaluate(() => window.__TEST__.clearAllData());
     const cleared = await page.evaluate(() => ({ raw: localStorage.getItem(window.CONFIG.storageKey), text: document.querySelector('#setup-area [role="status"]').textContent, expected: window.CONFIG.ui.dataCleared }));
     assert.equal(cleared.raw, null, `${lang}: explicit Clear still works without Web Locks`);

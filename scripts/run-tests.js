@@ -176,6 +176,7 @@ async function runTestFile(browser, { file, label }) {
     for (const testFile of TEST_FILES) totalFailed += await runTestFile(browser, testFile);
     totalFailed += await require("./test-persistence")(browser);
     totalFailed += await require("./test-review-regressions")(browser);
+    totalFailed += await require("./test-authority-regressions")(browser);
     totalFailed += await require("./test-boundary-regressions")(browser);
     await browser.close();
     console.log(totalFailed === 0 ? "\nAll tests and actual downloads passed." : `\n${totalFailed} test/download gates failed.`);

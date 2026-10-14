@@ -21,6 +21,13 @@
   var clearSequence = 0;
   var clearEpochSnapshot;
   var attemptedClearEpoch = null;
+  var authorityDatabase = null;
+  var authoritySnapshot;
+  var authorityCapture = Promise.resolve(null);
+  var authorityCapturePending = false;
+  var authorityCaptureSerial = 0;
+  var attemptedAuthorityClear = null;
+  var authorityClearProofs = {};
   var responseClockBlocked = false;
   var state = {
     currentTestIndex: 0,
@@ -78,6 +85,7 @@
     persistenceBlocked = false;
     clearEpochSnapshot = undefined;
     attemptedClearEpoch = null;
+    attemptedAuthorityClear = null;
     hide($("#persistence-area"));
     state.currentTestIndex = 0;
     state.currentQuestionIndex = 0;
@@ -108,23 +116,202 @@
   function captureClearEpoch() {
     try { clearEpochSnapshot = localStorage.getItem(clearEpochKey(C.storageKey)); }
     catch (error) { clearEpochSnapshot = undefined; }
-  }
-  function checkClearEpoch() {
-    var current = localStorage.getItem(clearEpochKey(C.storageKey));
-    if (clearEpochSnapshot === undefined) {
-      var error = new Error("Clear coordination unavailable");
-      error.storageUnavailable = true;
+    var generation = sessionGeneration;
+    var capture = ++authorityCaptureSerial;
+    authoritySnapshot = undefined;
+    authorityCapturePending = true;
+    authorityCapture = readAuthority(C.storageKey).then(function (record) {
+      if (generation === sessionGeneration && capture === authorityCaptureSerial) { authoritySnapshot = record; authorityCapturePending = false; }
+      return record;
+    }, function (error) {
+      if (generation === sessionGeneration && capture === authorityCaptureSerial) authorityCapturePending = false;
       throw error;
+    });
+    authorityCapture.catch(function () { });
+  }
+  function coordinationError(message, unavailable) {
+    var error = new Error(message);
+    if (unavailable) error.storageUnavailable = true;
+    return error;
+  }
+  function openAuthority() {
+    if (!window.indexedDB) return Promise.reject(coordinationError("Safe storage coordination unavailable", true));
+    if (!authorityDatabase) {
+      authorityDatabase = new Promise(function (resolve, reject) {
+        var request;
+        try { request = indexedDB.open("psychometric-coordination", 1); } catch (error) { reject(error); return; }
+        request.onupgradeneeded = function () {
+          if (!request.result.objectStoreNames.contains("sessions")) request.result.createObjectStore("sessions", { keyPath: "key" });
+        };
+        request.onerror = function () { reject(request.error || coordinationError("Coordination database unavailable")); };
+        request.onblocked = function () { reject(coordinationError("Coordination database blocked")); };
+        request.onsuccess = function () {
+          var database = request.result;
+          database.onversionchange = function () { database.close(); authorityDatabase = null; };
+          resolve(database);
+        };
+      }).catch(function (error) { authorityDatabase = null; throw error; });
     }
-    if (current === clearEpochSnapshot || attemptedClearEpoch !== null && current === attemptedClearEpoch) {
-      clearEpochSnapshot = current;
-      return true;
+    return authorityDatabase;
+  }
+  function authorityTransaction(key, mode, action) {
+    return openAuthority().then(function (database) {
+      return new Promise(function (resolve, reject) {
+        var transaction, result, failure;
+        try {
+          transaction = database.transaction("sessions", mode);
+          var store = transaction.objectStore("sessions");
+          var request = store.get(key);
+          request.onsuccess = function () {
+            try { result = action(request.result || null, store); }
+            catch (error) { failure = error; transaction.abort(); }
+          };
+          request.onerror = function () { failure = request.error; };
+          transaction.oncomplete = function () { resolve(result); };
+          transaction.onabort = function () { reject(failure || transaction.error || coordinationError("Coordination transaction aborted")); };
+          transaction.onerror = function () { failure = failure || transaction.error; };
+        } catch (error) { reject(error); }
+      });
+    });
+  }
+  function validAuthority(record) {
+    function hash(value) { return value === null || typeof value === "string" && /^[0-9a-f]{64}$/.test(value); }
+    if (record === null) return true;
+    return isObject(record) && typeof record.key === "string" && isInt(record.revision) && record.revision > 0 &&
+      (record.epoch === null || typeof record.epoch === "string") && hash(record.rawHash) &&
+      (record.pending === null || isObject(record.pending) && typeof record.pending.token === "string" && typeof record.pending.owner === "string" && hash(record.pending.targetHash) && typeof record.pending.clear === "boolean");
+  }
+  function readAuthority(key) {
+    return authorityTransaction(key, "readonly", function (record) {
+      if (!validAuthority(record)) throw coordinationError("Invalid coordination record");
+      return record;
+    });
+  }
+  function hashRaw(raw) {
+    if (raw === null) return Promise.resolve(null);
+    if (!window.crypto || !crypto.subtle || typeof TextEncoder !== "function") return Promise.reject(coordinationError("Safe storage coordination unavailable", true));
+    // JSON quoting preserves distinct lone UTF-16 surrogates in original raw backups.
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(raw))).then(function (digest) {
+      return Array.prototype.map.call(new Uint8Array(digest), function (byte) { return byte.toString(16).padStart(2, "0"); }).join("");
+    });
+  }
+  function authorityEpoch(record) { return record ? record.epoch : clearEpochSnapshot; }
+  function effectiveHash(record) { return record && record.pending ? record.pending.targetHash : record && record.rawHash; }
+  function sameAuthority(left, right) {
+    if (!left || !right) return left === right;
+    return left.revision === right.revision && left.epoch === right.epoch && left.rawHash === right.rawHash &&
+      (left.pending ? left.pending.token : null) === (right.pending ? right.pending.token : null);
+  }
+  function setAuthoritySnapshot(record) {
+    authorityCaptureSerial++;
+    authoritySnapshot = record;
+    authorityCapturePending = false;
+    authorityCapture = Promise.resolve(record);
+    if (record) clearEpochSnapshot = record.epoch;
+  }
+  function authorityConflict(record, baseline) {
+    var error = coordinationError("Saved session changed in another tab");
+    error.authorityConflict = true;
+    error.authorityCleared = authorityEpoch(record) !== authorityEpoch(baseline);
+    error.authorityRecord = record;
+    return error;
+  }
+  function reportAuthorityFailure(error) {
+    if (error.authorityCleared) {
+      resetState();
+      if (error.authorityRecord && error.authorityRecord.pending && error.authorityRecord.pending.clear) showSetupScreen(ui.alertClearDataFail);
+      else if (effectiveHash(error.authorityRecord) === null) showSetupScreen(ui.dataCleared);
+      else showStoredSession();
+      return false;
     }
-    var currentRaw = localStorage.getItem(C.storageKey);
-    resetState();
-    if (currentRaw === null) showSetupScreen(ui.dataCleared);
-    else showStoredSession();
-    return false;
+    if (error.authorityConflict) return blockCompetingSession();
+    return persistenceFailure(error);
+  }
+  function ensureAuthority(expectedRaw) {
+    var generation = sessionGeneration;
+    return authorityCapture.catch(function () { }).then(async function () {
+      if (generation !== sessionGeneration) throw coordinationError("Session changed while coordinating storage");
+      if (authoritySnapshot !== undefined) return authoritySnapshot;
+      var current = await readAuthority(C.storageKey);
+      var expectedHash = await hashRaw(expectedRaw);
+      if (clearEpochSnapshot === undefined) throw coordinationError("Clear coordination unavailable", true);
+      if (current && current.epoch !== clearEpochSnapshot) throw authorityConflict(current, { epoch: clearEpochSnapshot });
+      if (current && (effectiveHash(current) !== expectedHash || current.pending && current.pending.clear)) throw authorityConflict(current, null);
+      if (generation !== sessionGeneration) throw coordinationError("Session changed while coordinating storage");
+      authoritySnapshot = current;
+      return current;
+    });
+  }
+  function assertAuthority(record, baseline, expectedHash, attemptedHash, clearing) {
+    if (!validAuthority(record)) throw coordinationError("Invalid coordination record");
+    var confirmedPending = record && baseline && !record.pending && baseline.pending && record.revision === baseline.revision && record.epoch === baseline.epoch && record.rawHash === baseline.pending.targetHash;
+    if (!sameAuthority(record, baseline) && !confirmedPending) throw authorityConflict(record, baseline);
+    if (!record) return;
+    if (record.pending) {
+      if (record.pending.owner === writerId) {
+        if (clearing && record.pending.clear) return;
+        if (!record.pending.clear && (expectedHash === record.rawHash || attemptedHash !== null && attemptedHash === record.pending.targetHash)) return;
+      } else if (!record.pending.clear && expectedHash === record.pending.targetHash) return;
+      else if (clearing && record.pending.clear && expectedHash === record.rawHash) return;
+      if (!clearing && record.pending.clear && expectedHash === null) throw coordinationError("Clearing has not been verified; responses remain in memory");
+      throw authorityConflict(record, baseline);
+    }
+    if (record.rawHash !== expectedHash) throw authorityConflict(record, baseline);
+  }
+  function reserveAuthority(key, baseline, expectedHash, attemptedHash, targetHash, epoch, clearing, unconditional) {
+    return authorityTransaction(key, "readwrite", function (record, store) {
+      if (!validAuthority(record)) throw coordinationError("Invalid coordination record");
+      if (!unconditional) assertAuthority(record, baseline, expectedHash, attemptedHash, clearing);
+      var priorHash = record ? record.pending && !record.pending.clear && (unconditional || expectedHash === record.pending.targetHash) ? record.pending.targetHash : record.rawHash : expectedHash;
+      var reserved = {
+        key: key, revision: record ? record.revision + 1 : 1,
+        epoch: clearing ? epoch : record ? record.epoch : clearEpochSnapshot,
+        rawHash: priorHash,
+        pending: { token: writerId + ":reservation:" + (++writeSequence), owner: writerId, targetHash: targetHash, clear: !!clearing },
+      };
+      store.put(reserved);
+      return reserved;
+    });
+  }
+  function confirmAuthority(reserved) {
+    return authorityTransaction(reserved.key, "readwrite", function (record, store) {
+      if (!sameAuthority(record, reserved)) throw authorityConflict(record, reserved);
+      var confirmed = { key: record.key, revision: record.revision, epoch: record.epoch, rawHash: record.pending.targetHash, pending: null };
+      store.put(confirmed);
+      return confirmed;
+    });
+  }
+  function cancelAuthority(reserved, baseline) {
+    return authorityTransaction(reserved.key, "readwrite", function (record, store) {
+      if (!sameAuthority(record, reserved)) throw authorityConflict(record, reserved);
+      if (baseline) store.put(baseline);
+      else store.delete(reserved.key);
+      return baseline;
+    });
+  }
+  async function checkClearEpoch() {
+    var baseline = await ensureAuthority(storageSnapshot);
+    var current = await readAuthority(C.storageKey);
+    if (authorityEpoch(current) !== authorityEpoch(baseline)) throw authorityConflict(current, baseline);
+    return true;
+  }
+  async function authorityAccess(raw, backup) {
+    var baseline = await ensureAuthority(raw);
+    var current = await readAuthority(C.storageKey);
+    if (authorityEpoch(current) !== authorityEpoch(baseline)) throw authorityConflict(current, baseline);
+    if (current && !current.pending && current.rawHash === null && raw !== null) {
+      var cleared = authorityConflict(current, baseline);
+      cleared.authorityCleared = true;
+      throw cleared;
+    }
+    if (backup && current && current.pending && current.pending.clear && await hashRaw(raw) !== current.rawHash) {
+      throw coordinationError("The original saved data has not synchronized after the clearing failure");
+    }
+    if (!backup && current) {
+      var rawHash = await hashRaw(raw);
+      if (current.pending && current.pending.clear || effectiveHash(current) !== rawHash) throw authorityConflict(current, baseline);
+    }
+    return current;
   }
   function nextClearEpoch() { return writerId + ":clear:" + (++clearSequence); }
   function writeClearEpoch(storageKey, epoch) {
@@ -261,9 +448,8 @@
     if ((raw === storageSnapshot && !(raw === null && attemptedSnapshot !== null)) ||
         (attemptedSnapshot !== null && raw === attemptedSnapshot)) return true;
     if (raw === null && progressPersisted) {
-      resetState();
-      showSetupScreen(ui.dataCleared);
-      return false;
+      // An empty renderer cache cannot prove that a saved session was explicitly cleared.
+      return blockCompetingSession();
     }
     return blockCompetingSession();
   }
@@ -303,9 +489,12 @@
     var generation = sessionGeneration;
     var request = ++latestSaveRequest;
     if (snapshotValid) setPersistenceStatus(snapshot.status === "completed" ? "completedSaving" : "progressSaving");
-    var task = storageOperation(function () {
+    var task = storageOperation(async function () {
       if (!(state.testInProgress || state.testEndTime) || persistenceBlocked || state.testEndTime && snapshot.status !== "completed") return false;
-      if (!checkClearEpoch()) return false;
+      var baseline = await ensureAuthority(storageSnapshot);
+      if (generation !== sessionGeneration) return false;
+      await checkClearEpoch();
+      if (generation !== sessionGeneration) return false;
       if (!validateSession(snapshot)) {
         var invalidSnapshot = new Error("Session snapshot cannot be recovered");
         invalidSnapshot.clockChanged = !!validateSession(snapshot, true);
@@ -316,18 +505,40 @@
       storageSnapshot = raw;
       attemptedSnapshot = null;
       progressPersisted = raw !== null;
-      var previous = raw === null ? null : JSON.parse(raw);
-      snapshot.storageRevision = previous && isInt(previous.storageRevision) ? previous.storageRevision + 1 : 1;
+      snapshot.storageRevision = baseline ? baseline.revision + 1 : 1;
       snapshot.writeId = writerId + ":" + (++writeSequence);
       var serialized = JSON.stringify(snapshot);
+      var expectedHash = await hashRaw(raw);
+      var targetHash = await hashRaw(serialized);
+      if (generation !== sessionGeneration) return false;
+      var reserved = await reserveAuthority(C.storageKey, baseline, expectedHash, expectedHash, targetHash, null, false, false);
+      if (generation === sessionGeneration) authoritySnapshot = reserved;
+      if (generation !== sessionGeneration || !validateSession(snapshot)) {
+        try { var restored = await cancelAuthority(reserved, baseline); if (generation === sessionGeneration) authoritySnapshot = restored; } catch (error) { }
+        if (generation !== sessionGeneration) return false;
+        var clockError = new Error("Session snapshot cannot be recovered");
+        clockError.clockChanged = !!validateSession(snapshot, true);
+        throw clockError;
+      }
       // A failed read-back may leave this exact write stored; recognize it on retry.
       attemptedSnapshot = serialized;
       try { localStorage.setItem(C.storageKey, serialized); }
-      catch (error) { attemptedSnapshot = null; throw error; }
-      if (localStorage.getItem(C.storageKey) !== serialized) {
+      catch (error) {
         attemptedSnapshot = null;
+        try { authoritySnapshot = await cancelAuthority(reserved, baseline); } catch (cancelError) { }
+        throw error;
+      }
+      var verified = localStorage.getItem(C.storageKey);
+      if (verified !== serialized) {
+        if (verified === raw) {
+          attemptedSnapshot = null;
+          try { authoritySnapshot = await cancelAuthority(reserved, baseline); } catch (cancelError) { }
+        }
         throw new Error("Save verification failed");
       }
+      var confirmed = await confirmAuthority(reserved);
+      if (generation !== sessionGeneration) return false;
+      authoritySnapshot = confirmed;
       storageSnapshot = serialized;
       attemptedSnapshot = null;
       progressPersisted = true;
@@ -339,7 +550,7 @@
     }).catch(function (error) {
       if (generation === sessionGeneration && request === latestSaveRequest) {
         if (error.clockChanged) { completedPersisted = false; setPersistenceStatus("clockChanged"); return false; }
-        return persistenceFailure(error);
+        return reportAuthorityFailure(error);
       }
       return false;
     });
@@ -350,30 +561,40 @@
     var hasExpected = expected !== undefined;
     var expectedRaw = expected;
     var generation = sessionGeneration;
-    var task = storageOperation(function () {
-      if (!checkClearEpoch()) return false;
+    var task = storageOperation(async function () {
+      var baseline = await ensureAuthority(hasExpected ? expectedRaw : storageSnapshot);
+      await checkClearEpoch();
       var raw = localStorage.getItem(C.storageKey);
-      if (raw === null && attemptedClearEpoch !== null && localStorage.getItem(clearEpochKey(C.storageKey)) === attemptedClearEpoch) {
-        storageSnapshot = null;
-        attemptedSnapshot = null;
-        progressPersisted = false;
-        completedPersisted = false;
-        return true;
+      if (baseline && baseline.pending && baseline.pending.owner === writerId && baseline.pending.clear && raw === null && attemptedAuthorityClear === baseline.pending.token) {
+        var alreadyCleared = await confirmAuthority(baseline);
+        if (generation !== sessionGeneration) return false;
+        setAuthoritySnapshot(alreadyCleared);
+      } else {
+        if (raw !== (hasExpected ? expectedRaw : storageSnapshot) && !(attemptedSnapshot !== null && raw === attemptedSnapshot)) return blockCompetingSession();
+        var rawHash = await hashRaw(raw);
+        var attemptedHash = await hashRaw(attemptedSnapshot);
+        var epoch = nextClearEpoch();
+        var reserved = await reserveAuthority(C.storageKey, baseline, rawHash, attemptedHash, null, epoch, true, false);
+        if (generation !== sessionGeneration) return false;
+        setAuthoritySnapshot(reserved);
+        attemptedClearEpoch = epoch;
+        writeClearEpoch(C.storageKey, epoch);
+        if (reserved.rawHash !== rawHash) throw coordinationError("Saved data has not synchronized for deletion");
+        if (localStorage.getItem(C.storageKey) !== raw) throw coordinationError("Saved data changed before deletion");
+        localStorage.removeItem(C.storageKey);
+        attemptedAuthorityClear = reserved.pending.token;
+        if (localStorage.getItem(C.storageKey) !== null) throw new Error("Deletion verification failed");
+        var confirmed = await confirmAuthority(reserved);
+        if (generation !== sessionGeneration) return false;
+        setAuthoritySnapshot(confirmed);
       }
-      if (raw !== (hasExpected ? expectedRaw : storageSnapshot) && !(attemptedSnapshot !== null && raw === attemptedSnapshot)) return blockCompetingSession();
-      // Remember this exact attempt before verification; a denied read can follow a landed write.
-      attemptedClearEpoch = nextClearEpoch();
-      writeClearEpoch(C.storageKey, attemptedClearEpoch);
-      clearEpochSnapshot = attemptedClearEpoch;
-      localStorage.removeItem(C.storageKey);
-      if (localStorage.getItem(C.storageKey) !== null) throw new Error("Deletion verification failed");
       storageSnapshot = null;
       attemptedSnapshot = null;
       progressPersisted = false;
       completedPersisted = false;
       return true;
     }, explicitClear).catch(function (error) {
-      if (generation === sessionGeneration) return persistenceFailure(error);
+      if (generation === sessionGeneration) return reportAuthorityFailure(error);
       return false;
     });
     persistenceQueue = task;
@@ -409,19 +630,46 @@
     var keys = ["psychometric_progress_en", "psychometric_progress_fr", C.storageKey].filter(function (key, index, list) {
       return list.indexOf(key) === index;
     });
-    var task = storageOperation(function () {
+    var task = storageOperation(async function () {
       var cleared = true;
-      keys.forEach(function (key) {
-        try { writeClearEpoch(key); } catch (error) { cleared = false; }
-      });
-      keys.forEach(function (key) {
-        try { localStorage.removeItem(key); } catch (error) { cleared = false; }
-      });
-      keys.forEach(function (key) {
-        try { if (localStorage.getItem(key) !== null) cleared = false; }
+      for (var i = 0; i < keys.length; i++) {
+        var key = keys[i];
+        var reserved = null, beforeHash = null, readable = true, epoch = nextClearEpoch();
+        try { beforeHash = await hashRaw(localStorage.getItem(key)); } catch (error) { readable = false; cleared = false; }
+        try {
+          var previous = await readAuthority(key);
+          if (readable && beforeHash === null && previous && previous.pending && previous.pending.owner === writerId && previous.pending.clear && authorityClearProofs[key] === previous.pending.token) {
+            reserved = previous;
+            epoch = previous.epoch;
+          } else reserved = await reserveAuthority(key, null, readable ? beforeHash : null, null, null, epoch, true, true);
+        }
         catch (error) { cleared = false; }
-      });
-      showSetupScreen(cleared ? ui.dataCleared : ui.alertClearDataFail);
+        if (generation !== sessionGeneration) return false;
+        try { writeClearEpoch(key, epoch); } catch (error) { cleared = false; }
+        var deleted = true;
+        var presentBeforeDelete = false;
+        // With an observed entry, native removeItem sends a deletion even if its value is stale.
+        // Read immediately before removal, after every asynchronous coordination step.
+        try { presentBeforeDelete = localStorage.getItem(key) !== null; } catch (error) { cleared = false; }
+        try {
+          localStorage.removeItem(key);
+          if (reserved && readable && (presentBeforeDelete || reserved.rawHash === null && beforeHash === null || authorityClearProofs[key] === reserved.pending.token)) authorityClearProofs[key] = reserved.pending.token;
+        } catch (error) { deleted = false; cleared = false; }
+        try {
+          if (localStorage.getItem(key) !== null) {
+            deleted = false;
+            cleared = false;
+            if (reserved && authorityClearProofs[key] === reserved.pending.token) delete authorityClearProofs[key];
+          }
+        }
+        catch (error) { deleted = false; cleared = false; }
+        // Cached absence cannot prove deletion of an authoritative nonempty record.
+        if (!reserved || !readable || authorityClearProofs[key] !== reserved.pending.token) { cleared = false; continue; }
+        if (deleted) {
+          try { await confirmAuthority(reserved); } catch (error) { cleared = false; }
+        }
+      }
+      if (generation === sessionGeneration) showSetupScreen(cleared ? ui.dataCleared : ui.alertClearDataFail);
       return cleared;
     }, true).catch(function () {
       if (generation === sessionGeneration) showSetupScreen(ui.alertClearDataFail);
@@ -457,8 +705,9 @@
       return false;
     }
   }
-  function resumeSession(session, raw) {
+  function resumeSession(session, raw, authority) {
     resetState();
+    if (authority !== undefined) setAuthoritySnapshot(authority);
     storageSnapshot = raw;
     progressPersisted = raw !== null;
     state.participantId = session.participantId;
@@ -736,7 +985,6 @@
     show(button);
   }
   function showResumeScreen(saved, expectedRaw) {
-    captureClearEpoch();
     var snapshot = validateSession(saved);
     var promptRaw = expectedRaw;
     var promptMatches = true;
@@ -754,6 +1002,7 @@
       return;
     }
     var generation = ++sessionGeneration;
+    captureClearEpoch();
     var area = $("#setup-area");
     empty(area);
     hide($("#persistence-area"));
@@ -768,17 +1017,36 @@
     hide($("#nextBtn"));
     resume.addEventListener("click", function () {
       if (generation !== sessionGeneration) return;
-      var raw;
-      var session;
-      try { raw = localStorage.getItem(C.storageKey); session = validateSession(JSON.parse(raw)); }
-      catch (error) { setPersistenceStatus("progressSaveFailed"); return; }
-      if (!session || session.testStartTime !== snapshot.testStartTime || session.participantId !== snapshot.participantId || JSON.stringify(session.selectedTestNames) !== JSON.stringify(snapshot.selectedTestNames)) {
-        resetState();
-        if (raw === null) showSetupScreen(ui.dataCleared);
-        else showStoredSession();
-        return;
-      }
-      resumeSession(session, raw);
+      resume.disabled = true;
+      var observedRaw;
+      var task = storageOperation(async function () {
+        var raw = localStorage.getItem(C.storageKey);
+        observedRaw = raw;
+        var session;
+        try { session = validateSession(JSON.parse(raw)); } catch (error) { session = null; }
+        var authority = await authorityAccess(raw, !session);
+        if (generation !== sessionGeneration) return false;
+        if (!session || session.testStartTime !== snapshot.testStartTime || session.participantId !== snapshot.participantId || JSON.stringify(session.selectedTestNames) !== JSON.stringify(snapshot.selectedTestNames)) {
+          resetState();
+          if (raw === null) showSetupScreen(ui.dataCleared);
+          else showStoredSession();
+          return false;
+        }
+        resumeSession(session, raw, authority);
+        return true;
+      }, true).catch(function (error) {
+        if (generation === sessionGeneration) {
+          if (error.authorityConflict && !error.authorityCleared && observedRaw !== undefined && observedRaw !== null && !(error.authorityRecord && error.authorityRecord.pending && error.authorityRecord.pending.clear)) {
+            resetState();
+            showUnavailableSaved(observedRaw);
+          } else reportAuthorityFailure(error);
+        }
+        return false;
+      }).then(function (resumed) {
+        if (generation === sessionGeneration) resume.disabled = false;
+        return resumed;
+      });
+      persistenceQueue = task;
     });
     start.addEventListener("click", function () {
       if (generation !== sessionGeneration) return;
@@ -796,8 +1064,8 @@
     });
   }
   function showUnavailableSaved(raw) {
-    captureClearEpoch();
     var generation = ++sessionGeneration;
+    captureClearEpoch();
     var area = $("#setup-area");
     empty(area);
     hide($("#nextBtn"));
@@ -810,16 +1078,30 @@
     area.appendChild(start);
     backup.addEventListener("click", function () {
       if (generation !== sessionGeneration) return;
-      try {
+      backup.disabled = true;
+      var task = storageOperation(async function () {
         var current = localStorage.getItem(C.storageKey);
+        await authorityAccess(current, true);
+        if (generation !== sessionGeneration) return false;
         if (current !== raw) {
           resetState();
           if (current === null) showSetupScreen(ui.dataCleared);
           else showStoredSession();
-          return;
+          return false;
         }
         downloadSessionBackup(raw);
-      } catch (error) { alert(ui.backupDownloadFailed); }
+        return true;
+      }, true).catch(function (error) {
+        if (generation === sessionGeneration) {
+          if (error.authorityConflict || error.authorityCleared) reportAuthorityFailure(error);
+          else alert(ui.backupDownloadFailed);
+        }
+        return false;
+      }).then(function (downloaded) {
+        if (generation === sessionGeneration) backup.disabled = false;
+        return downloaded;
+      });
+      persistenceQueue = task;
     });
     start.addEventListener("click", function () {
       if (generation !== sessionGeneration) return;
@@ -1106,6 +1388,7 @@
   function handleNext() {
     var button = $("#nextBtn");
     if (button.disabled) return;
+    if (state.testInProgress && authorityCapturePending) return;
     if (state.testInProgress && !responseClockReady(Date.now())) return;
     if (state.testInProgress && !storedProgressAvailable()) return;
     button.disabled = true;
@@ -1214,33 +1497,43 @@
     if (clear) { clear.textContent = ui.clearDataBtn; clear.addEventListener("click", clearAllData); }
     window.addEventListener("storage", function (event) {
       if (event.storageArea && event.storageArea !== localStorage) return;
-      if (event.key === clearEpochKey(C.storageKey)) {
-        if (state.testInProgress || state.testEndTime || $("#resumeBtn") || $("#downloadStoredBackup")) {
-          try { checkClearEpoch(); }
-          catch (error) { if (state.testInProgress || state.testEndTime) persistenceFailure(error); }
-        }
-        return;
-      }
-      if (event.key !== C.storageKey && event.key !== null) return;
-      var raw;
-      try { raw = localStorage.getItem(C.storageKey); }
-      catch (error) {
-        if (state.testInProgress || state.testEndTime) persistenceFailure(error);
-        return;
-      }
-      // Read current storage so a delayed event cannot invalidate a newer local save.
-      if (raw === null && event.newValue === null && (state.testInProgress || $("#resumeBtn") || $("#downloadStoredBackup") || state.testEndTime)) {
-        if (event.key !== null && (state.testInProgress || state.testEndTime) && !progressPersisted && storageSnapshot === null && attemptedSnapshot === null) {
-          // A delayed deletion of an older save cannot delete a new memory-only session.
-          // A real app clear is still detected by its independently stored clear epoch.
-          try { checkClearEpoch(); } catch (error) { persistenceFailure(error); }
-          return;
-        }
+      var marker = event.key === clearEpochKey(C.storageKey);
+      if (!marker && event.key !== C.storageKey && event.key !== null) return;
+      if (!(state.testInProgress || state.testEndTime || $("#resumeBtn") || $("#downloadStoredBackup"))) return;
+      var generation = sessionGeneration;
+      // A browser-wide clear is explicit even when it did not update app metadata.
+      if (event.key === null && event.newValue === null) {
+        try { if (localStorage.getItem(C.storageKey) !== null) return; }
+        catch (error) { persistenceFailure(error); return; }
         resetState();
         showSetupScreen(ui.dataCleared);
-      } else if ((state.testInProgress || state.testEndTime) && raw !== storageSnapshot && raw !== attemptedSnapshot) {
-        blockCompetingSession();
+        return;
       }
+      var task = storageOperation(async function () {
+        await checkClearEpoch();
+        if (generation !== sessionGeneration) return false;
+        if (marker) return true;
+        var raw = localStorage.getItem(C.storageKey);
+        if (raw === null && event.newValue === null) {
+          if ((state.testInProgress || state.testEndTime) && !progressPersisted && storageSnapshot === null && attemptedSnapshot === null) return true;
+          // A renderer's cached absence cannot prove that the authoritative save was removed.
+          var authority = await readAuthority(C.storageKey);
+          if (generation !== sessionGeneration) return false;
+          if (authority && (authority.pending || authority.rawHash !== null)) {
+            if (state.testInProgress || state.testEndTime) blockCompetingSession();
+            return false;
+          }
+          resetState();
+          showSetupScreen(ui.dataCleared);
+          return false;
+        }
+        if ((state.testInProgress || state.testEndTime) && raw !== storageSnapshot && raw !== attemptedSnapshot) return blockCompetingSession();
+        return true;
+      }, true).catch(function (error) {
+        if (generation === sessionGeneration) reportAuthorityFailure(error);
+        return false;
+      });
+      persistenceQueue = task;
     });
     window.addEventListener("beforeunload", function (event) {
       // Requesting a download does not confirm that the browser saved its file.
@@ -1260,6 +1553,12 @@
       pdfTextSupported: pdfTextSupported,
       buildProgressBackup: buildProgressBackup, generateProgressBackup: generateProgressBackup,
       restoreProgressBackup: restoreProgressBackup,
+      resetAuthorityForFixture: function (key) {
+        var target = key || C.storageKey;
+        return authorityTransaction(target, "readwrite", function (record, store) { store.delete(target); return null; }).then(function () {
+          if (target === C.storageKey) { captureClearEpoch(); return authorityCapture; }
+        });
+      },
       whenPersistenceSettled: function () { return persistenceQueue; },
       state: state,
     };
