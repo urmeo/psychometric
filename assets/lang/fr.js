@@ -14,6 +14,7 @@ window.CONFIG = {
     downloadPdfBtn: "T\u00e9l\u00e9charger PDF",
     clearDataBtn: "Effacer les données de l'application",
     dataCleared: "Session actuelle et sessions françaises/anglaises enregistrées effacées. Les rapports téléchargés ne sont pas supprimés.",
+    alertClearDataFail: "La session actuelle est terminée, mais l'effacement de toutes les données enregistrées n'a pas pu être confirmé. Des réponses peuvent rester dans ce navigateur. Réessayez ou effacez les données de ce site dans les paramètres du navigateur. Les rapports téléchargés ne sont pas supprimés.",
     consent:
       "Réponses et identifiant restent dans ce navigateur pour reprendre. Aucun envoi. " +
       "Effacer termine la session et supprime les données françaises/anglaises enregistrées ; les fichiers téléchargés restent.",

@@ -195,11 +195,20 @@
     return null;
   }
   function clearAllData() {
-    ["psychometric_progress_en", "psychometric_progress_fr", C.storageKey].forEach(function (key) {
-      try { localStorage.removeItem(key); } catch (error) { }
+    var cleared = true;
+    var keys = ["psychometric_progress_en", "psychometric_progress_fr", C.storageKey].filter(function (key, index, list) {
+      return list.indexOf(key) === index;
+    });
+    keys.forEach(function (key) {
+      try { localStorage.removeItem(key); } catch (error) { cleared = false; }
+    });
+    keys.forEach(function (key) {
+      try {
+        if (localStorage.getItem(key) !== null) cleared = false;
+      } catch (error) { cleared = false; }
     });
     resetState();
-    showSetupScreen(ui.dataCleared);
+    showSetupScreen(cleared ? ui.dataCleared : ui.alertClearDataFail);
   }
 
   function completedAnswers(checkTimes) {
@@ -304,7 +313,7 @@
     if (!isObject(config.ui) || !isObject(config.export) || !isObject(config.testMetadata) || !isObject(config.subscaleLabels)) problems.push("missing UI, export, metadata or labels");
     var requiredUI = [
       "pageTitle", "heading", "startBtn", "nextBtn", "downloadCsvBtn", "downloadPdfBtn",
-      "clearDataBtn", "dataCleared", "consent", "participantLabel", "participantPlaceholder",
+      "clearDataBtn", "dataCleared", "alertClearDataFail", "consent", "participantLabel", "participantPlaceholder",
       "selectTests", "items", "resumeFound", "resumeParticipant", "resumeAnswers", "resumeBtn",
       "newSessionBtn", "alertSelectTest", "alertAnswer", "alertCsvFail", "alertPdfFail",
       "alertPdfError", "alertPdfEncoding", "configError", "resultsHeading", "participantLabel2", "durationLabel",

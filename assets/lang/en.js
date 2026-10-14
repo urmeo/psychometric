@@ -12,6 +12,7 @@ window.CONFIG = {
     downloadPdfBtn: "Download PDF",
     clearDataBtn: "Clear app data",
     dataCleared: "Current session and saved English/French sessions cleared. Downloaded reports are not deleted.",
+    alertClearDataFail: "Current session ended, but saved data could not be fully cleared or verified. Responses may remain in this browser. Please try again or clear this site's data in your browser settings. Downloaded reports are not deleted.",
     consent:
       "Answers and ID stay in this browser for resume. No uploads. " +
       "Clear ends the session and removes saved English/French data; downloaded files remain.",

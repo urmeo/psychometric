@@ -155,6 +155,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
     ["malformed threshold", function (config) { config.thresholds.HADS.Anxiety.ranges[0] = null; }],
     ["unknown threshold subscale", function (config) { config.thresholds.HADS.Typo = { ranges: [[0, 7, "range"]] }; }],
     ["missing UI label", function (config) { delete config.ui.colRange; }],
+    ["missing Clear Data failure message", function (config) { delete config.ui.alertClearDataFail; }],
     ["misaligned CSV columns", function (config) { config.ui.csvHeaders = "only,two"; }],
     ["missing export filename", function (config) { delete config.export.csvFilename; }],
   ];
@@ -186,8 +187,54 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   assert(!!document.getElementById("participantIdInput"), "Clear returns to setup");
   assert(state.answers.length === 0 && !state.testInProgress, "detached Resume cannot revive cleared data");
   assert(localStorage.getItem("psychometric_progress_en") === null && localStorage.getItem("psychometric_progress_fr") === null, "Clear removes both known locale saves");
+  assert(localStorage.getItem(C.storageKey) === null, "Clear removes the configured storage key");
+  assert(document.querySelector('#setup-area [role="status"]').textContent === C.ui.dataCleared, "Clear reports success after all saves are removed");
   assert(localStorage.getItem("psychometric-unrelated-test") === "keep", "Clear preserves unrelated storage");
   localStorage.removeItem("psychometric-unrelated-test");
+
+  var clearKeys = ["psychometric_progress_en", "psychometric_progress_fr", C.storageKey];
+  ["remove throws", "remove silently fails", "verification throws"].forEach(function (failure) {
+    clearKeys.forEach(function (failedKey) {
+      clearKeys.forEach(function (key) { localStorage.setItem(key, "saved responses"); });
+      localStorage.setItem(C.storageKey, JSON.stringify(valid));
+      T.showResumeScreen(valid);
+      document.getElementById("resumeBtn").click();
+      var originalRemove = Storage.prototype.removeItem;
+      var originalGet = Storage.prototype.getItem;
+      var removalAttempts = [];
+      var label = failure + " for " + failedKey;
+      Storage.prototype.removeItem = function (key) {
+        if (this === localStorage) {
+          removalAttempts.push(key);
+          if (key === failedKey && failure === "remove throws") throw new Error("Storage deletion denied");
+          if (key === failedKey && failure === "remove silently fails") return;
+        }
+        return originalRemove.apply(this, arguments);
+      };
+      Storage.prototype.getItem = function (key) {
+        if (this === localStorage && key === failedKey && failure === "verification throws") throw new Error("Storage verification denied");
+        return originalGet.apply(this, arguments);
+      };
+      try {
+        document.getElementById("clearDataBtn").click();
+        var clearStatus = document.querySelector('#setup-area [role="status"]');
+        assert(!!clearStatus && clearStatus.textContent === C.ui.alertClearDataFail && clearStatus.textContent !== C.ui.dataCleared, "Clear reports localized failure: " + label);
+        assert(clearKeys.every(function (key) { return removalAttempts.indexOf(key) !== -1; }), "Clear attempts all saves after failure: " + label);
+        assert(state.answers.length === 0 && !state.testInProgress && state.testStartTime === null && state.testEndTime === null, "Clear resets active session despite failure: " + label);
+        assert(!!document.getElementById("participantIdInput") && !document.getElementById("resumeBtn"), "Clear returns to setup despite failure: " + label);
+      } finally {
+        Storage.prototype.removeItem = originalRemove;
+        Storage.prototype.getItem = originalGet;
+      }
+      assert(clearKeys.every(function (key) { return key === failedKey || localStorage.getItem(key) === null; }), "Clear removes unaffected saves: " + label);
+      if (failure !== "verification throws") {
+        assert(localStorage.getItem(failedKey) !== null, "failed Clear still has saved responses: " + label);
+      }
+      T.clearAllData();
+      assert(clearKeys.every(function (key) { return localStorage.getItem(key) === null; }) && document.querySelector('#setup-area [role="status"]').textContent === C.ui.dataCleared, "Clear retry succeeds after storage recovers: " + label);
+    });
+  });
+
   localStorage.setItem(C.storageKey, JSON.stringify(valid));
   T.showResumeScreen(valid);
   var externalResume = document.getElementById("resumeBtn");
