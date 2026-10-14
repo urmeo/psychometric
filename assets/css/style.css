@@ -161,28 +161,27 @@ p {
   background-color: #fff8e1;
 }
 
-.interp-normal {
-  color: #155724;
-  background-color: #d4edda;
+.interp-normal,
+.interp-moderate,
+.interp-abnormal {
   padding: 2px 6px;
   border-radius: 3px;
   font-weight: 600;
+}
+
+.interp-normal {
+  color: #155724;
+  background-color: #d4edda;
 }
 
 .interp-moderate {
   color: #856404;
   background-color: #fff3cd;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 600;
 }
 
 .interp-abnormal {
   color: #721c24;
   background-color: #f8d7da;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-weight: 600;
 }
 
 .disclaimer {

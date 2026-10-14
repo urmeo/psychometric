@@ -4,8 +4,8 @@ type: software
 title: "Psychometric: bilingual questionnaire scoring and exports"
 authors:
   - given-names: urme
-repository-code: "https://github.com/urmeo/Psychometric"
-url: "https://github.com/urmeo/Psychometric"
+repository-code: "https://github.com/urmeo/psychometric"
+url: "https://github.com/urmeo/psychometric"
 license: MIT
 date-released: "2026-02-23"
 keywords:

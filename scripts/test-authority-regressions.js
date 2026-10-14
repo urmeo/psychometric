@@ -1,28 +1,5 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs/promises");
-const http = require("node:http");
-const path = require("node:path");
-
-const ROOT = path.resolve(__dirname, "..");
-
-async function serveApplication() {
-  const server = http.createServer(async (request, response) => {
-    try {
-      const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
-      const target = path.resolve(ROOT, "." + pathname);
-      if (!target.startsWith(ROOT + path.sep)) throw new Error("Invalid path");
-      const type = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" }[path.extname(target)];
-      const bytes = await fs.readFile(target);
-      response.writeHead(200, { "Content-Type": type || "application/octet-stream", "Cache-Control": "no-store" });
-      response.end(bytes);
-    } catch (error) {
-      response.writeHead(404);
-      response.end("Not found");
-    }
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { server, origin: `http://127.0.0.1:${server.address().port}` };
-}
+const serveApplication = require("./test-server");
 
 async function openPage(context, origin, lang, options = {}) {
   const page = await context.newPage();

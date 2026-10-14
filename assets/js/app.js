@@ -1,12 +1,11 @@
 (function () {
   "use strict";
 
-  var C = window.CONFIG || {};
-  var ui = C.ui || {};
-  var allTests = Array.isArray(C.tests) ? C.tests : [];
+  var config = window.CONFIG || {};
+  var ui = config.ui || {};
+  var allTests = Array.isArray(config.tests) ? config.tests : [];
   var SESSION_VERSION = 1;
   var sessionGeneration = 0;
-  var invalidSavedSession = false;
   var unavailableSavedRaw = null;
   var loadedSessionRaw = null;
   var progressPersisted = false;
@@ -20,7 +19,6 @@
   var latestSaveRequest = 0;
   var clearSequence = 0;
   var clearEpochSnapshot;
-  var attemptedClearEpoch = null;
   var authorityDatabase = null;
   var authoritySnapshot;
   var authorityCapture = Promise.resolve(null);
@@ -37,15 +35,11 @@
     testStartTime: null,
     testEndTime: null,
     questionStartTime: null,
-    resultsExported: false,
     testInProgress: false,
     participantId: "",
     tests: [],
   };
 
-  function isInt(value) {
-    return typeof value === "number" && Number.isFinite(value) && Math.floor(value) === value;
-  }
   function isObject(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
@@ -71,7 +65,7 @@
   function hide(node) { if (node) node.classList.add("hidden"); }
   function show(node) { if (node) node.classList.remove("hidden"); }
   function testByName(name) {
-    return allTests.filter(function (test) { return test.name === name; })[0];
+    return allTests.find(function (test) { return test.name === name; });
   }
 
   function resetState() {
@@ -84,7 +78,6 @@
     attemptedSnapshot = null;
     persistenceBlocked = false;
     clearEpochSnapshot = undefined;
-    attemptedClearEpoch = null;
     attemptedAuthorityClear = null;
     hide($("#persistence-area"));
     state.currentTestIndex = 0;
@@ -94,7 +87,6 @@
     state.testStartTime = null;
     state.testEndTime = null;
     state.questionStartTime = null;
-    state.resultsExported = false;
     state.testInProgress = false;
     state.participantId = "";
     state.tests = [];
@@ -103,24 +95,24 @@
 
   function configSignature() {
     return JSON.stringify({
-      lang: C.lang,
-      revision: C.revision,
+      lang: config.lang,
+      revision: config.revision,
       tests: allTests.map(function (test) {
-        return { name: test.name, questions: test.questions, metadata: C.testMetadata[test.name] };
+        return { name: test.name, questions: test.questions, metadata: config.testMetadata[test.name] };
       }),
-      scoring: C.scoring,
+      scoring: config.scoring,
     });
   }
 
   function clearEpochKey(storageKey) { return storageKey + ":clear-epoch"; }
   function captureClearEpoch() {
-    try { clearEpochSnapshot = localStorage.getItem(clearEpochKey(C.storageKey)); }
+    try { clearEpochSnapshot = localStorage.getItem(clearEpochKey(config.storageKey)); }
     catch (error) { clearEpochSnapshot = undefined; }
     var generation = sessionGeneration;
     var capture = ++authorityCaptureSerial;
     authoritySnapshot = undefined;
     authorityCapturePending = true;
-    authorityCapture = readAuthority(C.storageKey).then(function (record) {
+    authorityCapture = readAuthority(config.storageKey).then(function (record) {
       if (generation === sessionGeneration && capture === authorityCaptureSerial) { authoritySnapshot = record; authorityCapturePending = false; }
       return record;
     }, function (error) {
@@ -177,7 +169,7 @@
   function validAuthority(record) {
     function hash(value) { return value === null || typeof value === "string" && /^[0-9a-f]{64}$/.test(value); }
     if (record === null) return true;
-    return isObject(record) && typeof record.key === "string" && isInt(record.revision) && record.revision > 0 &&
+    return isObject(record) && typeof record.key === "string" && Number.isInteger(record.revision) && record.revision > 0 &&
       (record.epoch === null || typeof record.epoch === "string") && hash(record.rawHash) &&
       (record.pending === null || isObject(record.pending) && typeof record.pending.token === "string" && typeof record.pending.owner === "string" && hash(record.pending.targetHash) && typeof record.pending.clear === "boolean");
   }
@@ -232,7 +224,7 @@
     return authorityCapture.catch(function () { }).then(async function () {
       if (generation !== sessionGeneration) throw coordinationError("Session changed while coordinating storage");
       if (authoritySnapshot !== undefined) return authoritySnapshot;
-      var current = await readAuthority(C.storageKey);
+      var current = await readAuthority(config.storageKey);
       var expectedHash = await hashRaw(expectedRaw);
       if (clearEpochSnapshot === undefined) throw coordinationError("Clear coordination unavailable", true);
       if (current && current.epoch !== clearEpochSnapshot) throw authorityConflict(current, { epoch: clearEpochSnapshot });
@@ -291,13 +283,13 @@
   }
   async function checkClearEpoch() {
     var baseline = await ensureAuthority(storageSnapshot);
-    var current = await readAuthority(C.storageKey);
+    var current = await readAuthority(config.storageKey);
     if (authorityEpoch(current) !== authorityEpoch(baseline)) throw authorityConflict(current, baseline);
     return true;
   }
   async function authorityAccess(raw, backup) {
     var baseline = await ensureAuthority(raw);
-    var current = await readAuthority(C.storageKey);
+    var current = await readAuthority(config.storageKey);
     if (authorityEpoch(current) !== authorityEpoch(baseline)) throw authorityConflict(current, baseline);
     if (current && !current.pending && current.rawHash === null && raw !== null) {
       var cleared = authorityConflict(current, baseline);
@@ -315,17 +307,15 @@
   }
   function nextClearEpoch() { return writerId + ":clear:" + (++clearSequence); }
   function writeClearEpoch(storageKey, epoch) {
-    epoch = epoch || nextClearEpoch();
     var key = clearEpochKey(storageKey);
     localStorage.setItem(key, epoch);
     if (localStorage.getItem(key) !== epoch) throw new Error("Clear coordination verification failed");
-    return epoch;
   }
 
   function canonicalAnswer(answer, test, questionIndex, checkTimes) {
     if (!isObject(answer) || answer.test !== test.name || answer.questionIndex !== questionIndex) return null;
     var question = test.questions[questionIndex - 1];
-    if (!question || !isInt(answer.optionIndex) || answer.optionIndex < 0 || answer.optionIndex >= question.options.length) return null;
+    if (!question || !Number.isInteger(answer.optionIndex) || answer.optionIndex < 0 || answer.optionIndex >= question.options.length) return null;
     if (answer.question !== question.q || answer.answer !== question.options[answer.optionIndex] || answer.score !== question.scores[answer.optionIndex]) return null;
     var description = answer.description === undefined ? "" : answer.description;
     if (typeof description !== "string" || (!question.description && description !== "")) return null;
@@ -349,7 +339,7 @@
   }
 
   function validateSession(saved, allowFutureClock) {
-    if (!isObject(saved) || saved.version !== SESSION_VERSION || saved.lang !== C.lang || saved.revision !== C.revision || saved.configSignature !== configSignature()) return null;
+    if (!isObject(saved) || saved.version !== SESSION_VERSION || saved.lang !== config.lang || saved.revision !== config.revision || saved.configSignature !== configSignature()) return null;
     var completed = saved.status === "completed";
     if (saved.status !== undefined && saved.status !== "in-progress" && !completed) return null;
     if (!completed && saved.testEndTime != null) return null;
@@ -358,9 +348,9 @@
     if (names.some(function (name, index) { return typeof name !== "string" || !testByName(name) || names.indexOf(name) !== index; })) return null;
     var tests = allTests.filter(function (test) { return names.indexOf(test.name) !== -1; });
     if (tests.some(function (test, index) { return test.name !== names[index]; })) return null;
-    if (!isInt(saved.currentTestIndex) || saved.currentTestIndex < 0 || saved.currentTestIndex >= tests.length) return null;
+    if (!Number.isInteger(saved.currentTestIndex) || saved.currentTestIndex < 0 || saved.currentTestIndex >= tests.length) return null;
     var currentTest = tests[saved.currentTestIndex];
-    if (!isInt(saved.currentQuestionIndex) || saved.currentQuestionIndex < 0) return null;
+    if (!Number.isInteger(saved.currentQuestionIndex) || saved.currentQuestionIndex < 0) return null;
     if (completed) {
       if (saved.currentTestIndex !== tests.length - 1 || saved.currentQuestionIndex !== currentTest.questions.length || !validDate(saved.testEndTime)) return null;
     } else if (saved.currentQuestionIndex >= currentTest.questions.length) return null;
@@ -386,8 +376,8 @@
     return {
       version: SESSION_VERSION,
       status: completed ? "completed" : "in-progress",
-      lang: C.lang,
-      revision: C.revision,
+      lang: config.lang,
+      revision: config.revision,
       configSignature: configSignature(),
       participantId: saved.participantId,
       currentTestIndex: saved.currentTestIndex,
@@ -447,15 +437,12 @@
   function checkStorageSnapshot(raw) {
     if ((raw === storageSnapshot && !(raw === null && attemptedSnapshot !== null)) ||
         (attemptedSnapshot !== null && raw === attemptedSnapshot)) return true;
-    if (raw === null && progressPersisted) {
-      // An empty renderer cache cannot prove that a saved session was explicitly cleared.
-      return blockCompetingSession();
-    }
+    // A mismatched or empty cache cannot prove that the saved session was cleared.
     return blockCompetingSession();
   }
   function storedProgressAvailable() {
     if (persistenceBlocked) return false;
-    try { return checkStorageSnapshot(localStorage.getItem(C.storageKey)); }
+    try { return checkStorageSnapshot(localStorage.getItem(config.storageKey)); }
     catch (error) {
       setPersistenceStatus("progressSaveFailed");
       // Responses may continue in memory; saveProgress must read again before any write.
@@ -466,8 +453,8 @@
     return {
       version: SESSION_VERSION,
       status: state.testEndTime ? "completed" : "in-progress",
-      lang: C.lang,
-      revision: C.revision,
+      lang: config.lang,
+      revision: config.revision,
       configSignature: configSignature(),
       participantId: state.participantId,
       currentTestIndex: state.currentTestIndex,
@@ -500,7 +487,7 @@
         invalidSnapshot.clockChanged = !!validateSession(snapshot, true);
         throw invalidSnapshot;
       }
-      var raw = localStorage.getItem(C.storageKey);
+      var raw = localStorage.getItem(config.storageKey);
       if (!checkStorageSnapshot(raw)) return false;
       storageSnapshot = raw;
       attemptedSnapshot = null;
@@ -511,7 +498,7 @@
       var expectedHash = await hashRaw(raw);
       var targetHash = await hashRaw(serialized);
       if (generation !== sessionGeneration) return false;
-      var reserved = await reserveAuthority(C.storageKey, baseline, expectedHash, expectedHash, targetHash, null, false, false);
+      var reserved = await reserveAuthority(config.storageKey, baseline, expectedHash, expectedHash, targetHash, null, false, false);
       if (generation === sessionGeneration) authoritySnapshot = reserved;
       if (generation !== sessionGeneration || !validateSession(snapshot)) {
         try { var restored = await cancelAuthority(reserved, baseline); if (generation === sessionGeneration) authoritySnapshot = restored; } catch (error) { }
@@ -522,13 +509,13 @@
       }
       // A failed read-back may leave this exact write stored; recognize it on retry.
       attemptedSnapshot = serialized;
-      try { localStorage.setItem(C.storageKey, serialized); }
+      try { localStorage.setItem(config.storageKey, serialized); }
       catch (error) {
         attemptedSnapshot = null;
         try { authoritySnapshot = await cancelAuthority(reserved, baseline); } catch (cancelError) { }
         throw error;
       }
-      var verified = localStorage.getItem(C.storageKey);
+      var verified = localStorage.getItem(config.storageKey);
       if (verified !== serialized) {
         if (verified === raw) {
           attemptedSnapshot = null;
@@ -557,14 +544,14 @@
     persistenceQueue = task;
     return task;
   }
-  function clearProgress(expected, explicitClear) {
+  function clearProgress(expected) {
     var hasExpected = expected !== undefined;
     var expectedRaw = expected;
     var generation = sessionGeneration;
     var task = storageOperation(async function () {
       var baseline = await ensureAuthority(hasExpected ? expectedRaw : storageSnapshot);
       await checkClearEpoch();
-      var raw = localStorage.getItem(C.storageKey);
+      var raw = localStorage.getItem(config.storageKey);
       if (baseline && baseline.pending && baseline.pending.owner === writerId && baseline.pending.clear && raw === null && attemptedAuthorityClear === baseline.pending.token) {
         var alreadyCleared = await confirmAuthority(baseline);
         if (generation !== sessionGeneration) return false;
@@ -574,16 +561,15 @@
         var rawHash = await hashRaw(raw);
         var attemptedHash = await hashRaw(attemptedSnapshot);
         var epoch = nextClearEpoch();
-        var reserved = await reserveAuthority(C.storageKey, baseline, rawHash, attemptedHash, null, epoch, true, false);
+        var reserved = await reserveAuthority(config.storageKey, baseline, rawHash, attemptedHash, null, epoch, true, false);
         if (generation !== sessionGeneration) return false;
         setAuthoritySnapshot(reserved);
-        attemptedClearEpoch = epoch;
-        writeClearEpoch(C.storageKey, epoch);
+        writeClearEpoch(config.storageKey, epoch);
         if (reserved.rawHash !== rawHash) throw coordinationError("Saved data has not synchronized for deletion");
-        if (localStorage.getItem(C.storageKey) !== raw) throw coordinationError("Saved data changed before deletion");
-        localStorage.removeItem(C.storageKey);
+        if (localStorage.getItem(config.storageKey) !== raw) throw coordinationError("Saved data changed before deletion");
+        localStorage.removeItem(config.storageKey);
         attemptedAuthorityClear = reserved.pending.token;
-        if (localStorage.getItem(C.storageKey) !== null) throw new Error("Deletion verification failed");
+        if (localStorage.getItem(config.storageKey) !== null) throw new Error("Deletion verification failed");
         var confirmed = await confirmAuthority(reserved);
         if (generation !== sessionGeneration) return false;
         setAuthoritySnapshot(confirmed);
@@ -593,7 +579,7 @@
       progressPersisted = false;
       completedPersisted = false;
       return true;
-    }, explicitClear).catch(function (error) {
+    }, true).catch(function (error) {
       if (generation === sessionGeneration) return reportAuthorityFailure(error);
       return false;
     });
@@ -601,11 +587,10 @@
     return task;
   }
   function loadProgress() {
-    invalidSavedSession = false;
     unavailableSavedRaw = null;
     loadedSessionRaw = null;
     var raw;
-    try { raw = localStorage.getItem(C.storageKey); }
+    try { raw = localStorage.getItem(config.storageKey); }
     catch (error) { return null; }
     loadedSessionRaw = raw;
     if (raw === null) return null;
@@ -615,7 +600,6 @@
       var saved = validateSession(parsed);
       if (saved) return saved;
     } catch (error) { }
-    invalidSavedSession = true;
     // Validation determines whether a record may resume, never whether it may survive.
     // An older configuration, a corrected clock, or damaged JSON can still contain responses.
     unavailableSavedRaw = raw;
@@ -627,7 +611,7 @@
     $("#nextBtn").disabled = true;
     $("#restoreBackupInput").disabled = true;
     var generation = sessionGeneration;
-    var keys = ["psychometric_progress_en", "psychometric_progress_fr", C.storageKey].filter(function (key, index, list) {
+    var keys = ["psychometric_progress_en", "psychometric_progress_fr", config.storageKey].filter(function (key, index, list) {
       return list.indexOf(key) === index;
     });
     var task = storageOperation(async function () {
@@ -686,19 +670,18 @@
     snapshot.generatedAt = new Date().toISOString();
     return JSON.stringify(snapshot, null, 2) + "\n";
   }
-  function downloadSessionBackup(text) {
-    var blob = new Blob([text], { type: "application/json;charset=utf-8" });
-    var link = el("a", { download: C.export.backupFilename });
+  function downloadText(text, filename, mimeType) {
+    var blob = new Blob([text], { type: mimeType });
+    var link = el("a", { download: filename });
     var url = URL.createObjectURL(blob);
     link.href = url;
+    link.style.visibility = "hidden";
     document.body.appendChild(link);
     try { link.click(); } finally { link.remove(); URL.revokeObjectURL(url); }
-    return true;
   }
   function generateProgressBackup() {
     try {
-      downloadSessionBackup(buildProgressBackup());
-      if (state.testEndTime) state.resultsExported = true;
+      downloadText(buildProgressBackup(), config.export.backupFilename, "application/json;charset=utf-8");
       return true;
     } catch (error) {
       alert(ui.backupDownloadFailed);
@@ -744,7 +727,7 @@
       return Promise.resolve(false);
     }
     try {
-      if (localStorage.getItem(C.storageKey) !== null) {
+      if (localStorage.getItem(config.storageKey) !== null) {
         alert(ui.backupRestoreConflict);
         return Promise.resolve(false);
       }
@@ -766,7 +749,7 @@
     var seen = {};
     return state.answers.map(function (answer) {
       var test = tests[answer && answer.test];
-      if (!test || !isInt(answer.questionIndex)) throw new Error(ui.invalidResults);
+      if (!test || !Number.isInteger(answer.questionIndex)) throw new Error(ui.invalidResults);
       var key = test.name + ":" + answer.questionIndex;
       var canonical = canonicalAnswer(answer, test, answer.questionIndex, checkTimes);
       if (!canonical || seen[key]) throw new Error(ui.invalidResults);
@@ -780,22 +763,22 @@
     state.tests.forEach(function (test) {
       var byQuestion = {};
       answers.filter(function (answer) { return answer.test === test.name; }).forEach(function (answer) { byQuestion[answer.questionIndex] = answer.score; });
-      var config = C.scoring[test.name];
-      if (config.type === "total") {
+      var scoring = config.scoring[test.name];
+      if (scoring.type === "total") {
         scores[test.name] = test.questions.reduce(function (sum, question, index) { return sum + byQuestion[index + 1]; }, 0);
       } else {
-        var groups = config.subscales || config.traits;
+        var groups = scoring.subscales || scoring.traits;
         scores[test.name] = {};
         Object.keys(groups).forEach(function (name) {
           var sum = groups[name].reduce(function (total, index) { return total + byQuestion[index]; }, 0);
-          scores[test.name][name] = config.type === "trait-average" ? sum / groups[name].length : sum;
+          scores[test.name][name] = scoring.type === "trait-average" ? sum / groups[name].length : sum;
         });
       }
     });
     return scores;
   }
   function getInterpretation(testName, subscale, score) {
-    var threshold = C.thresholds[testName];
+    var threshold = config.thresholds[testName];
     var entry = threshold && (threshold[subscale || "Total"] || threshold._default);
     if (!entry || !Number.isFinite(score)) return "";
     for (var i = 0; i < entry.ranges.length; i++) {
@@ -806,7 +789,7 @@
   }
   function interpClass(label) {
     if (!label) return "";
-    var configuredHads = C.thresholds.HADS;
+    var configuredHads = config.thresholds.HADS;
     var hads = configuredHads && configuredHads.Anxiety ? configuredHads.Anxiety.ranges : [];
     for (var i = 0; i < hads.length; i++) {
       if (label === hads[i][2]) return ["interp-normal", "interp-moderate", "interp-abnormal"][i];
@@ -819,16 +802,16 @@
   }
   function scoreRange(testName, subscale) {
     var test = testByName(testName);
-    var config = C.scoring[testName];
-    var groups = config.subscales || config.traits;
+    var scoring = config.scoring[testName];
+    var groups = scoring.subscales || scoring.traits;
     var indices = groups ? groups[subscale] : test.questions.map(function (question, index) { return index + 1; });
     return ["min", "max"].map(function (bound) {
       var total = indices.reduce(function (sum, index) { return sum + Math[bound].apply(Math, test.questions[index - 1].scores); }, 0);
-      return config.type === "trait-average" ? total / indices.length : total;
+      return scoring.type === "trait-average" ? total / indices.length : total;
     });
   }
   function formatScoreValue(value) {
-    return typeof value === "number" && !isInt(value) ? value.toFixed(2) : String(value);
+    return typeof value === "number" && !Number.isInteger(value) ? value.toFixed(2) : String(value);
   }
   function summaryRows(summary) {
     var rows = [];
@@ -836,7 +819,7 @@
       var values = typeof summary[name] === "object" ? summary[name] : { Total: summary[name] };
       Object.keys(values).forEach(function (key) {
         rows.push({
-          test: name, key: key, label: key === "Total" ? ui.totalLabel : C.subscaleLabels[key],
+          test: name, key: key, label: key === "Total" ? ui.totalLabel : config.subscaleLabels[key],
           score: formatScoreValue(values[key]),
           range: scoreRange(name, key).map(formatScoreValue).join("-"),
           interpretation: getInterpretation(name, key, values[key]) || ui.rawScoreLabel,
@@ -857,7 +840,7 @@
       "pageTitle", "heading", "startBtn", "nextBtn", "downloadCsvBtn", "downloadPdfBtn",
       "clearDataBtn", "dataCleared", "alertClearDataFail", "consent", "participantLabel", "participantPlaceholder",
       "progressSaving", "progressSaved", "progressSaveFailed", "progressConflict", "progressStorageUnavailable", "clockChanged",
-      "completedFound", "viewResultsBtn", "clearResultsStartBtn", "completedRetention", "completedClearFailed", "completedUnavailable",
+      "completedFound", "viewResultsBtn", "clearResultsStartBtn", "completedRetention", "completedClearFailed",
       "savedUnavailable", "clearSavedStartBtn", "savedRetention", "savedClearFailed",
       "completedSaving", "completedSaved", "completedSaveFailed", "completedStorageUnavailable", "completedConflict",
       "retrySaveBtn", "downloadBackupBtn", "restoreBackupLabel", "backupDownloadFailed",
@@ -910,7 +893,7 @@
       Object.keys(groups).forEach(function (group) {
         var indices = groups[group];
         if (!Array.isArray(indices) || !indices.length) { problems.push(name + "." + group + ": empty group"); return; }
-        if (indices.some(function (index, position) { return !isInt(index) || index < 1 || !Array.isArray(byName[name].questions) || index > byName[name].questions.length || indices.indexOf(index) !== position; })) problems.push(name + "." + group + ": invalid or duplicate item index");
+        if (indices.some(function (index, position) { return !Number.isInteger(index) || index < 1 || !Array.isArray(byName[name].questions) || index > byName[name].questions.length || indices.indexOf(index) !== position; })) problems.push(name + "." + group + ": invalid or duplicate item index");
         if (!config.subscaleLabels || typeof config.subscaleLabels[group] !== "string" || !config.subscaleLabels[group]) problems.push(name + "." + group + ": missing display label");
       });
     });
@@ -990,7 +973,7 @@
     var promptMatches = true;
     if (expectedRaw === undefined) {
       try {
-        promptRaw = localStorage.getItem(C.storageKey);
+        promptRaw = localStorage.getItem(config.storageKey);
         var current = validateSession(JSON.parse(promptRaw));
         promptMatches = !!current && JSON.stringify(current) === JSON.stringify(snapshot);
       } catch (error) { promptRaw = undefined; }
@@ -1020,7 +1003,7 @@
       resume.disabled = true;
       var observedRaw;
       var task = storageOperation(async function () {
-        var raw = localStorage.getItem(C.storageKey);
+        var raw = localStorage.getItem(config.storageKey);
         observedRaw = raw;
         var session;
         try { session = validateSession(JSON.parse(raw)); } catch (error) { session = null; }
@@ -1053,7 +1036,7 @@
       if (promptRaw === undefined) { setPersistenceStatus("progressSaveFailed"); return; }
       if (!promptMatches) { setPersistenceStatus(completed ? "completedConflict" : "progressConflict"); return; }
       start.disabled = true;
-      clearProgress(promptRaw, true).then(function (cleared) {
+      clearProgress(promptRaw).then(function (cleared) {
         if (generation !== sessionGeneration) return;
         if (cleared) { resetState(); showSetupScreen(); }
         else {
@@ -1080,7 +1063,7 @@
       if (generation !== sessionGeneration) return;
       backup.disabled = true;
       var task = storageOperation(async function () {
-        var current = localStorage.getItem(C.storageKey);
+        var current = localStorage.getItem(config.storageKey);
         await authorityAccess(current, true);
         if (generation !== sessionGeneration) return false;
         if (current !== raw) {
@@ -1089,7 +1072,7 @@
           else showStoredSession();
           return false;
         }
-        downloadSessionBackup(raw);
+        downloadText(raw, config.export.backupFilename, "application/json;charset=utf-8");
         return true;
       }, true).catch(function (error) {
         if (generation === sessionGeneration) {
@@ -1106,7 +1089,7 @@
     start.addEventListener("click", function () {
       if (generation !== sessionGeneration) return;
       start.disabled = true;
-      clearProgress(raw, true).then(function (cleared) {
+      clearProgress(raw).then(function (cleared) {
         if (generation !== sessionGeneration) return;
         if (cleared) { resetState(); showSetupScreen(); }
         else {
@@ -1120,7 +1103,7 @@
     var saved = loadProgress();
     if (saved) showResumeScreen(saved, loadedSessionRaw);
     else if (unavailableSavedRaw !== null) showUnavailableSaved(unavailableSavedRaw);
-    else showSetupScreen(invalidSavedSession ? ui.invalidSession : "");
+    else showSetupScreen();
   }
   function loadTest(test) {
     var area = $("#instruction-area");
@@ -1149,7 +1132,7 @@
       ]));
     });
     area.appendChild(group);
-    area.appendChild(el("p", { className: "instrument-notice", text: C.testMetadata[state.tests[state.currentTestIndex].name].notice }));
+    area.appendChild(el("p", { className: "instrument-notice", text: config.testMetadata[state.tests[state.currentTestIndex].name].notice }));
     updateProgressBar();
     prompt.focus();
   }
@@ -1172,7 +1155,7 @@
     var index = Number(selected.value);
     var test = state.tests[state.currentTestIndex];
     var question = test.questions[state.currentQuestionIndex];
-    if (!isInt(index) || index >= question.options.length) return false;
+    if (!Number.isInteger(index) || index >= question.options.length) return false;
     var description = $("#question-description");
     state.answers.push({
       test: test.name, questionIndex: state.currentQuestionIndex + 1, optionIndex: index,
@@ -1220,7 +1203,7 @@
       start.addEventListener("click", function () {
         if (generation !== sessionGeneration) return;
         start.disabled = true;
-        clearProgress(undefined, true).then(function (cleared) {
+        clearProgress().then(function (cleared) {
           if (generation !== sessionGeneration) return;
           if (cleared) { resetState(); showSetupScreen(); }
           else {
@@ -1248,15 +1231,15 @@
     var lines = ["\uFEFF" + ui.csvSessionTitle];
     function row(values) { lines.push(values.map(csvEscape).join(",")); }
     row([ui.csvParticipant, state.participantId || "N/A"]);
-    row([ui.csvLanguage, C.lang]);
-    row([ui.csvRevision, C.revision]);
+    row([ui.csvLanguage, config.lang]);
+    row([ui.csvRevision, config.revision]);
     row([ui.csvStarted, state.testStartTime.toISOString()]);
     row([ui.csvCompleted, state.testEndTime.toISOString()]);
     row([ui.csvGenerated, new Date().toISOString()]);
     row([ui.csvDuration, sessionMinutes(2)]);
     row([ui.csvTestsCompleted, state.tests.map(function (test) { return test.name; }).join("; ")]);
     state.tests.forEach(function (test) {
-      var metadata = C.testMetadata[test.name];
+      var metadata = config.testMetadata[test.name];
       row([ui.csvForm, test.name, metadata.form]);
       row([ui.csvSource, test.name, metadata.source]);
       row([ui.csvNotice, test.name, metadata.notice]);
@@ -1274,14 +1257,7 @@
   }
   function generateCSV() {
     try {
-      var blob = new Blob([buildCSV()], { type: "text/csv;charset=utf-8;" });
-      var link = el("a", { download: C.export.csvFilename });
-      var url = URL.createObjectURL(blob);
-      link.href = url;
-      link.style.visibility = "hidden";
-      document.body.appendChild(link);
-      try { link.click(); } finally { link.remove(); URL.revokeObjectURL(url); }
-      state.resultsExported = true;
+      downloadText(buildCSV(), config.export.csvFilename, "text/csv;charset=utf-8;");
       return true;
     } catch (error) {
       console.error("CSV generation failed:", error);
@@ -1296,9 +1272,9 @@
   function checkPDFText(answers) {
     var text = [state.participantId];
     Object.keys(ui).forEach(function (key) { text.push(ui[key]); });
-    Object.keys(C.subscaleLabels).forEach(function (key) { text.push(C.subscaleLabels[key]); });
+    Object.keys(config.subscaleLabels).forEach(function (key) { text.push(config.subscaleLabels[key]); });
     state.tests.forEach(function (test) {
-      var metadata = C.testMetadata[test.name];
+      var metadata = config.testMetadata[test.name];
       text.push(test.name, metadata.form, metadata.source, metadata.notice);
     });
     answers.forEach(function (answer) { text.push(answer.question, answer.answer, answer.description); });
@@ -1315,7 +1291,7 @@
     var margin = 10;
     var width = doc.internal.pageSize.getWidth() - 2 * margin;
     var height = doc.internal.pageSize.getHeight();
-    var notices = state.tests.map(function (test) { return C.testMetadata[test.name].notice; }).filter(function (notice, index, list) { return list.indexOf(notice) === index; });
+    var notices = state.tests.map(function (test) { return config.testMetadata[test.name].notice; }).filter(function (notice, index, list) { return list.indexOf(notice) === index; });
     doc.setFontSize(8);
     var footerLines = doc.splitTextToSize(ui.pdfNotice + "\n" + notices.join("\n"), width);
     var footerTop = height - margin - footerLines.length * 3.8;
@@ -1341,12 +1317,12 @@
     write(ui.pdfTitle, 16, 4);
     write(ui.pdfGenerated + " " + new Date().toISOString());
     if (state.participantId) write(ui.pdfParticipant + " " + state.participantId);
-    write(ui.pdfLanguage + " " + C.lang + " | " + ui.pdfRevision + " " + C.revision);
+    write(ui.pdfLanguage + " " + config.lang + " | " + ui.pdfRevision + " " + config.revision);
     write(ui.pdfStarted + " " + state.testStartTime.toISOString());
     write(ui.pdfCompleted + " " + state.testEndTime.toISOString());
     write(ui.pdfDuration + " " + sessionMinutes(1) + " " + ui.minutes);
     state.tests.forEach(function (test) {
-      var metadata = C.testMetadata[test.name];
+      var metadata = config.testMetadata[test.name];
       write(test.name + " | " + ui.pdfForm + " " + metadata.form);
       write(ui.pdfSource + " " + metadata.source, 9);
     });
@@ -1373,8 +1349,7 @@
       return;
     }
     try {
-      buildPDF().save(C.export.pdfFilename);
-      state.resultsExported = true;
+      buildPDF().save(config.export.pdfFilename);
     } catch (error) {
       if (error.code === "PDF_ENCODING") {
         if (generateCSV()) alert(ui.alertPdfEncoding);
@@ -1399,7 +1374,7 @@
       if (!input) { button.disabled = false; return; }
       var participant = input.value.trim();
       var selected = Array.prototype.map.call($$(".test-checkbox:checked"), function (checkbox) { return Number(checkbox.value); });
-      if (!selected.length || selected.some(function (index) { return !isInt(index) || !allTests[index]; })) { alert(ui.alertSelectTest); button.disabled = false; return; }
+      if (!selected.length || selected.some(function (index) { return !Number.isInteger(index) || !allTests[index]; })) { alert(ui.alertSelectTest); button.disabled = false; return; }
       resetState();
       state.participantId = participant;
       state.tests = selected.map(function (index) { return allTests[index]; });
@@ -1443,7 +1418,7 @@
     saveProgress();
   }
   function init() {
-    var problems = validateConfig(C);
+    var problems = validateConfig(config);
     if (problems.length) {
       console.error("CONFIG validation problems:", problems);
       empty($("#setup-area"));
@@ -1497,13 +1472,13 @@
     if (clear) { clear.textContent = ui.clearDataBtn; clear.addEventListener("click", clearAllData); }
     window.addEventListener("storage", function (event) {
       if (event.storageArea && event.storageArea !== localStorage) return;
-      var marker = event.key === clearEpochKey(C.storageKey);
-      if (!marker && event.key !== C.storageKey && event.key !== null) return;
+      var marker = event.key === clearEpochKey(config.storageKey);
+      if (!marker && event.key !== config.storageKey && event.key !== null) return;
       if (!(state.testInProgress || state.testEndTime || $("#resumeBtn") || $("#downloadStoredBackup"))) return;
       var generation = sessionGeneration;
       // A browser-wide clear is explicit even when it did not update app metadata.
       if (event.key === null && event.newValue === null) {
-        try { if (localStorage.getItem(C.storageKey) !== null) return; }
+        try { if (localStorage.getItem(config.storageKey) !== null) return; }
         catch (error) { persistenceFailure(error); return; }
         resetState();
         showSetupScreen(ui.dataCleared);
@@ -1513,11 +1488,11 @@
         await checkClearEpoch();
         if (generation !== sessionGeneration) return false;
         if (marker) return true;
-        var raw = localStorage.getItem(C.storageKey);
+        var raw = localStorage.getItem(config.storageKey);
         if (raw === null && event.newValue === null) {
           if ((state.testInProgress || state.testEndTime) && !progressPersisted && storageSnapshot === null && attemptedSnapshot === null) return true;
           // A renderer's cached absence cannot prove that the authoritative save was removed.
-          var authority = await readAuthority(C.storageKey);
+          var authority = await readAuthority(config.storageKey);
           if (generation !== sessionGeneration) return false;
           if (authority && (authority.pending || authority.rawHash !== null)) {
             if (state.testInProgress || state.testEndTime) blockCompetingSession();
@@ -1554,9 +1529,9 @@
       buildProgressBackup: buildProgressBackup, generateProgressBackup: generateProgressBackup,
       restoreProgressBackup: restoreProgressBackup,
       resetAuthorityForFixture: function (key) {
-        var target = key || C.storageKey;
+        var target = key || config.storageKey;
         return authorityTransaction(target, "readwrite", function (record, store) { store.delete(target); return null; }).then(function () {
-          if (target === C.storageKey) { captureClearEpoch(); return authorityCapture; }
+          if (target === config.storageKey) { captureClearEpoch(); return authorityCapture; }
         });
       },
       whenPersistenceSettled: function () { return persistenceQueue; },

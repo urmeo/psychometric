@@ -1,92 +1,64 @@
 # Psychometric
 
-**Psychometrics · Bilingual · Scoring · Export**
+Psychometric runs five questionnaires in English or French, with 88 items in total. Choose one or more questionnaires, answer each item, then view scores and download a CSV or PDF report. Scoring runs in the browser. Responses are not uploaded.
 
-## Overview
+## Run the app
 
-English/French questionnaires: **5 instruments, 88 items**. [Open app](https://urmeo.github.io/psychometric/), or open `index.html` locally. No build or server.
+Use the [hosted app](https://urmeo.github.io/psychometric/), or download this repository and open `index.html`. No installation, build or server is required to use it. Automatic saving depends on browser support and storage access; check the saving status before closing the tab.
 
-### Data flow
+1. Choose a language and the questionnaires to complete. The participant ID is optional; use a code rather than a name.
+2. Submit each answer with **Next**. An option or description still being edited has not been submitted or saved.
+3. View the scores and download a report. Use a JSON session backup if you need to restore the session later.
 
-```mermaid
-flowchart LR
-    A[Language and instruments] --> B[Responses and optional FQ descriptions]
-    B --> C[Keyed scoring and score ranges]
-    C --> D[CSV / PDF download]
-    B <--> E[Saved session: localStorage]
-    C <--> E
-    B <--> F[Session backup: JSON file]
-    C <--> F
-```
+Scores do not establish a diagnosis. HADS provides screening bands; BFI-10 describes traits relative to the scale midpoint. STAI and FQ report raw scores without severity bands.
 
-## Instruments
+## Questionnaires
 
 | Instrument | Items | Output |
 |:-----------|------:|:-------|
-| HADS | 14 | Anxiety/depression: **0–21 each**, screening bands |
-| STAI-S | 20 | State anxiety: **20–80**, raw score |
-| STAI-T | 20 | Trait anxiety: **20–80**, raw score |
-| BFI-10 | 10 | Five trait means: **1–5 each**, descriptive |
-| FQ | 24 | Total phobia: **0–120**; three phobia subscales and associated anxiety/depression: **0–40 each**; main/global phobia: **0–8 each** |
+| HADS | 14 | Anxiety and depression: 0–21 each, with screening bands |
+| STAI-S | 20 | State anxiety: 20–80 |
+| STAI-T | 20 | Trait anxiety: 20–80 |
+| BFI-10 | 10 | Five trait means: 1–5 each |
+| FQ | 24 | Total phobia: 0–120; three phobia subscales and associated anxiety/depression: 0–40 each; main and global phobia ratings: 0–8 each |
 
-STAI: English **Form X-1/X-2**, French **Form Y-1/Y-2**; keys differ. French BFI-10: [Courtois et al. (2020)](https://www.em-consulte.com/article/1361431).
+English STAI uses Forms X-1/X-2. French STAI uses Forms Y-1/Y-2, with different scoring keys. The French BFI-10 follows [Courtois et al. (2020)](https://www.em-consulte.com/article/1361431). The [instrument rights and source notes](NOTICE.md) cover permissions and the FQ scoring convention.
 
-## Features
+CSV and PDF reports include submitted responses, optional FQ descriptions, scores, questionnaire forms, revision and timestamps. PDF cannot represent every character; use the UTF-8 CSV to retain unsupported characters.
 
-- Choose instrument combinations.
-- Resume saved progress or reopen completed results after reloading, with visible saving, saved, failure and tab-conflict status. Responses are submitted with Next; an option or description still being edited is not saved progress.
-- In-progress and completed sessions remain saved in this browser until explicitly cleared, with no automatic expiry. CSV, PDF and JSON downloads leave the browser copy saved.
-- Saved sessions that cannot be validated remain in the browser unchanged, including unfinished sessions, older questionnaire configurations, timestamps affected by a device clock correction, and damaged JSON. Download their original data before explicitly clearing them. A matching language and questionnaire configuration, or a corrected clock, may allow recovery; damaged data may need repair.
-- Download a JSON session backup during an unfinished or completed session, then restore it from setup using the same language and questionnaire configuration. Restoration validates the session and does not replace an existing browser save; resume it, view its results or explicitly clear that save first.
-- Check for a competing saved revision before writing. Browser locks and shared IndexedDB coordination records check the expected revision and response hash independently of a tab's cached local storage. A conflicting tab keeps its answers available for backup and stops replacing the browser save. Saving is confirmed only after the response write is verified and its coordination transaction commits.
-- Clear app data ends the session and removes both language saves; a failure to delete or verify deletion is reported. When completed results are found, Clear saved results and start new clears that language's save and returns to setup; the other language's save remains.
-- Clearing also advances a coordination epoch for each affected language, including when no responses could be saved. Other tabs check the shared epoch before writing so an old memory-only session cannot recreate cleared data. IndexedDB retains storage keys, SHA-256 hashes, revision numbers, and operation tokens; small local-storage markers notify other tabs. This coordination metadata contains no participant IDs or responses and has no automatic expiry. Clearing responses retains this metadata so older tabs can still detect the clear.
-- CSV/PDF: responses, descriptions, scores, forms, revision, timestamps.
+## Saving and recovery
 
-Unsupported PDF characters export intact as UTF-8 CSV.
+The app saves submitted answers in this browser and can reopen unfinished sessions or completed results after a reload. A **saved** status confirms that the response write was read back and its coordination record committed. Automatic saving requires browser locks, IndexedDB and hashing support. If saving fails, is unavailable or conflicts with another tab, keep the tab open and download a JSON backup before leaving or reloading. Starting a download does not confirm that a file was saved.
 
-<img src="outputs/setup.jpg" alt="English setup with five instrument selections and local storage controls" width="960">
-<img src="outputs/results.jpg" alt="Synthetic English session showing score ranges and CSV/PDF downloads" width="960">
+Each language has one browser save. If another tab changes that save, this tab stops replacing it and keeps its own answers available for backup. Clear controls also prevent older tabs from recreating cleared responses, including answers that could not be saved.
 
-## Tech stack
+JSON backups contain the participant ID and submitted responses. They can restore unfinished sessions or completed results from setup, using the same language and questionnaire configuration. Restoration validates the backup and does not replace an existing browser save. Resume, view or explicitly clear that save first. CSV and PDF reports cannot be restored as sessions.
 
-| Layer | Tools |
-|:------|:------|
-| Interface | HTML, CSS, Bootstrap 5 |
-| Scoring and storage | Vanilla JavaScript, localStorage |
-| Downloads | CSV/Blob, jsPDF |
-| Checks | Node.js, Puppeteer |
+An unreadable or incompatible save remains unchanged. Download its original data before clearing it. The matching questionnaire configuration or a corrected device clock may allow recovery; damaged data may need repair. If the device clock moves backwards during a session, submission pauses until the clock is corrected.
 
-## Files
+Browser saves contain sensitive responses and have no automatic expiry. Downloads leave the browser copy saved. **Clear app data** ends the current session and removes both language saves. Other clear controls remove the displayed language's save. Failed or unverified deletion is reported. Clearing responses leaves downloaded files and coordination metadata, which contains no participant IDs or responses. Clearing this site's data in browser settings removes its browser storage. Browsers can also clear storage independently; keep a separate backup when the data matters.
 
-- `en/` and `fr/`: language entry pages.
-- `assets/`: application code, styles, translations and bundled libraries.
-- `docs/`: instrument references.
-- `outputs/`: interface screenshots.
-- `scripts/` and `tests/`: verification.
+<img src="outputs/setup.jpg" alt="English setup with questionnaire selections and storage controls" width="960">
+<img src="outputs/results.jpg" alt="Example results from synthetic responses, with score ranges and CSV/PDF downloads" width="960">
 
-## Verify
+## Development
 
-Node **22.12+**.
+The app uses HTML, CSS, vanilla JavaScript, Bootstrap and jsPDF. Libraries are bundled in `assets/vendor/`; using the app does not require npm. Node.js 22.12 or later is required for verification:
 
 ```sh
 npm ci
 npm run check:vendor
 npm test
+npm audit --audit-level=high
 ```
 
-To check persistence in the browser, submit an answer with Next and confirm the saved status. Block storage writes and submit another answer: a failure status should appear with retry and JSON backup controls. Restore that backup on the same language page after explicitly clearing any existing save. Open the same saved session in two tabs, submit in one and then the other, and confirm the second tab reports a conflict while the first tab's saved revision remains intact. If safe automatic saving is unavailable, confirm that the status directs the participant to keep the tab open and download a backup.
+Puppeteer runs browser tests for scoring, persistence, recovery and actual CSV/PDF downloads in both languages. The vendor check compares bundled jsPDF with its locked npm package. See [CONTRIBUTING.md](CONTRIBUTING.md) for change and review guidance.
 
-Complete a session and confirm that all completed responses are saved. Reload and select View saved results to reopen the same results; download CSV, PDF or JSON and reload again to verify that the browser copy remains. A completed JSON backup should reopen results after restoration. Clear saved results and start new should remove only the current language's saved results; Clear app data should remove both language saves. If the final save fails or conflicts, completed responses should remain available in the open tab for retry or download, and the status must not claim they are saved.
+Language pages live in `en/` and `fr/`. Application code, styles and translations are in `assets/`. The `docs/` directory contains source instrument PDFs; `scripts/` and `tests/` contain verification code.
 
-## Limits
+## License and references
 
-1. No diagnosis: HADS screens, BFI describes, STAI/FQ report raw scores.
-2. Use coded IDs. In-progress and completed browser saves and exports contain sensitive responses. Browser saves have no automatic expiry and remain after export until explicitly cleared, or until browser storage is cleared. Clearing saves leaves downloaded files.
-3. [MIT](LICENSE) covers software only. STAI/HADS require permission; see [instrument rights](NOTICE.md).
-4. Browser storage can fail or be cleared. Safe autosaving requires browser locks, IndexedDB, and hashing support. Only a confirmed saved status establishes that the latest submitted answers were read back from this browser's storage and their coordination record committed. Keep a JSON backup before closing or reloading a tab when saving fails, conflicts, or is unavailable. Backups contain the participant ID and submitted responses and are separate from scored CSV/PDF reports.
-
-## References
+[MIT](LICENSE) covers the software, not questionnaire rights. STAI and HADS require permission; see [NOTICE.md](NOTICE.md) before use.
 
 | Instrument | Source |
 |---|---|
