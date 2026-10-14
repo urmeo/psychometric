@@ -53,19 +53,37 @@ async function memoryOnlyClearCases(context, origin, lang) {
     await startSession(memory, "unsaved answers before clear", true);
     await submitAnswer(memory);
     assert.equal(await memory.evaluate(() => localStorage.getItem(window.CONFIG.storageKey)), null, `${lang}: failed initial saves leave the response key absent`);
+    const beforeMarker = await memory.evaluate(() => localStorage.getItem(window.CONFIG.storageKey + ":clear-epoch"));
     const owner = await open(context, origin, lang);
-    await owner.evaluate(() => window.__TEST__.clearAllData());
+    const ownerClear = await owner.evaluate(async () => ({
+      result: await window.__TEST__.clearAllData(),
+      marker: localStorage.getItem(window.CONFIG.storageKey + ":clear-epoch"),
+      raw: localStorage.getItem(window.CONFIG.storageKey),
+      status: document.querySelector('#setup-area [role="status"]').textContent,
+    }));
+    assert.equal(ownerClear.result, true, `${lang}: fixture clearing must succeed; ${JSON.stringify(ownerClear)}`);
+    assert.equal(ownerClear.raw, null, `${lang}: fixture clearing must remove saved responses`);
+    assert.notEqual(ownerClear.marker, beforeMarker, `${lang}: fixture clearing must replace the previous marker`);
     if (!ignoreEvents) await memory.waitForFunction(() => !window.__TEST__.state.testInProgress);
-    await memory.evaluate(async () => {
+    const saveResult = await memory.evaluate(async () => {
       window.restoreResponseWrites();
-      await window.__TEST__.saveProgress();
+      return window.__TEST__.saveProgress();
     });
     const cleared = await memory.evaluate(() => ({
       active: window.__TEST__.state.testInProgress,
       answers: window.__TEST__.state.answers.length,
       raw: localStorage.getItem(window.CONFIG.storageKey),
+      marker: localStorage.getItem(window.CONFIG.storageKey + ":clear-epoch"),
+      status: document.getElementById("persistence-status").textContent,
+      clock: {
+        now: new Date().toISOString(),
+        started: window.__TEST__.state.testStartTime && window.__TEST__.state.testStartTime.toISOString(),
+        questionStarted: window.__TEST__.state.questionStartTime && window.__TEST__.state.questionStartTime.toISOString(),
+        lastAnswer: window.__TEST__.state.answers.length ? window.__TEST__.state.answers[window.__TEST__.state.answers.length - 1].answerTime : null,
+      },
     }));
-    assert.equal(cleared.active, false, `${lang}: ${ignoreEvents ? "pre-write check" : "marker event"} ends an unsaved session after another tab clears`);
+    const diagnostic = { ignoreEvents, beforeMarker, ownerClear, saveResult, cleared: { ...cleared, raw: cleared.raw === null ? null : { savedAnswers: JSON.parse(cleared.raw).answers.length } } };
+    assert.equal(cleared.active, false, `${lang}: ${ignoreEvents ? "pre-write check" : "marker event"} ends an unsaved session after another tab clears; ${JSON.stringify(diagnostic)}`);
     assert.equal(cleared.answers, 0, `${lang}: cleared unsaved responses cannot return from memory`);
     assert.equal(cleared.raw, null, `${lang}: retry cannot resurrect responses after cross-tab clearing`);
 
@@ -363,3 +381,5 @@ module.exports = async function runReviewRegressions(browser) {
     await new Promise((resolve) => server.close(resolve));
   }
 };
+
+module.exports.memoryOnlyClearCases = memoryOnlyClearCases;
