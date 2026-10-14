@@ -7,7 +7,9 @@
   var SESSION_VERSION = 1;
   var sessionGeneration = 0;
   var invalidSavedSession = false;
+  var unavailableCompletedRaw = null;
   var progressPersisted = false;
+  var completedPersisted = false;
   var storageSnapshot = null;
   var attemptedSnapshot = null;
   var persistenceBlocked = false;
@@ -63,6 +65,8 @@
   function resetState() {
     sessionGeneration++;
     progressPersisted = false;
+    completedPersisted = false;
+    unavailableCompletedRaw = null;
     storageSnapshot = null;
     attemptedSnapshot = null;
     persistenceBlocked = false;
@@ -119,6 +123,9 @@
 
   function validateSession(saved) {
     if (!isObject(saved) || saved.version !== SESSION_VERSION || saved.lang !== C.lang || saved.revision !== C.revision || saved.configSignature !== configSignature()) return null;
+    var completed = saved.status === "completed";
+    if (saved.status !== undefined && saved.status !== "in-progress" && !completed) return null;
+    if (!completed && saved.testEndTime != null) return null;
     if (typeof saved.participantId !== "string" || !validDate(saved.testStartTime) || !Array.isArray(saved.answers) || !Array.isArray(saved.selectedTestNames) || !saved.selectedTestNames.length) return null;
     var names = saved.selectedTestNames;
     if (names.some(function (name, index) { return typeof name !== "string" || !testByName(name) || names.indexOf(name) !== index; })) return null;
@@ -126,25 +133,30 @@
     if (tests.some(function (test, index) { return test.name !== names[index]; })) return null;
     if (!isInt(saved.currentTestIndex) || saved.currentTestIndex < 0 || saved.currentTestIndex >= tests.length) return null;
     var currentTest = tests[saved.currentTestIndex];
-    if (!isInt(saved.currentQuestionIndex) || saved.currentQuestionIndex < 0 || saved.currentQuestionIndex >= currentTest.questions.length) return null;
+    if (!isInt(saved.currentQuestionIndex) || saved.currentQuestionIndex < 0) return null;
+    if (completed) {
+      if (saved.currentTestIndex !== tests.length - 1 || saved.currentQuestionIndex !== currentTest.questions.length || !validDate(saved.testEndTime)) return null;
+    } else if (saved.currentQuestionIndex >= currentTest.questions.length) return null;
     var prefix = [];
     tests.forEach(function (test, index) {
-      var count = index < saved.currentTestIndex ? test.questions.length : index === saved.currentTestIndex ? saved.currentQuestionIndex : 0;
+      var count = completed || index < saved.currentTestIndex ? test.questions.length : index === saved.currentTestIndex ? saved.currentQuestionIndex : 0;
       for (var question = 1; question <= count; question++) prefix.push({ test: test, question: question });
     });
     if (saved.answers.length !== prefix.length) return null;
     var previousTime = Date.parse(saved.testStartTime);
     var now = Date.now();
-    if (previousTime > now) return null;
+    var end = completed ? Date.parse(saved.testEndTime) : now;
+    if (previousTime > now || end < previousTime || end > now) return null;
     var answers = [];
     for (var i = 0; i < prefix.length; i++) {
       var answer = canonicalAnswer(saved.answers[i], prefix[i].test, prefix[i].question, true);
-      if (!answer || Date.parse(answer.questionStartTime) < previousTime || Date.parse(answer.answerTime) > now) return null;
+      if (!answer || Date.parse(answer.questionStartTime) < previousTime || Date.parse(answer.answerTime) > end) return null;
       previousTime = Date.parse(answer.answerTime);
       answers.push(answer);
     }
     return {
       version: SESSION_VERSION,
+      status: completed ? "completed" : "in-progress",
       lang: C.lang,
       revision: C.revision,
       configSignature: configSignature(),
@@ -153,6 +165,7 @@
       currentQuestionIndex: saved.currentQuestionIndex,
       answers: answers,
       testStartTime: saved.testStartTime,
+      testEndTime: completed ? saved.testEndTime : null,
       selectedTestNames: names.slice(),
     };
   }
@@ -161,9 +174,10 @@
     var area = $("#persistence-area");
     if (!area) return;
     $("#persistence-status").textContent = ui[key];
-    area.classList.toggle("persistence-warning", key !== "progressSaved" && key !== "progressCompleted" && key !== "progressSaving");
-    $("#downloadBackup").classList.toggle("hidden", !state.testInProgress);
-    $("#retrySave").classList.toggle("hidden", !state.testInProgress || persistenceBlocked || key !== "progressSaveFailed");
+    area.classList.toggle("persistence-warning", key !== "progressSaved" && key !== "completedSaved" && key !== "progressSaving" && key !== "completedSaving");
+    var hasSession = state.testInProgress || state.testEndTime;
+    $("#downloadBackup").classList.toggle("hidden", !hasSession);
+    $("#retrySave").classList.toggle("hidden", !hasSession || persistenceBlocked || key !== "progressSaveFailed" && key !== "completedSaveFailed");
     show(area);
   }
   function storageOperation(action, explicitClear) {
@@ -187,7 +201,8 @@
   }
   function persistenceFailure(error) {
     if (state.testEndTime) {
-      setPersistenceStatus("progressCompletedClearFailed");
+      completedPersisted = false;
+      setPersistenceStatus(error.storageUnavailable || error.name === "SecurityError" && !window.isSecureContext ? "completedStorageUnavailable" : "completedSaveFailed");
       return false;
     }
     setPersistenceStatus(error.storageUnavailable || error.name === "SecurityError" && !window.isSecureContext ? "progressStorageUnavailable" : "progressSaveFailed");
@@ -195,7 +210,8 @@
   }
   function blockCompetingSession() {
     persistenceBlocked = true;
-    setPersistenceStatus(state.testEndTime ? "progressCompletedConflict" : "progressConflict");
+    completedPersisted = false;
+    setPersistenceStatus(state.testEndTime ? "completedConflict" : "progressConflict");
     if (state.testInProgress) $("#nextBtn").disabled = true;
     return false;
   }
@@ -221,6 +237,7 @@
   function progressSnapshot() {
     return {
       version: SESSION_VERSION,
+      status: state.testEndTime ? "completed" : "in-progress",
       lang: C.lang,
       revision: C.revision,
       configSignature: configSignature(),
@@ -229,17 +246,23 @@
       currentQuestionIndex: state.currentQuestionIndex,
       answers: state.answers.slice(),
       testStartTime: state.testStartTime.toISOString(),
+      testEndTime: state.testEndTime ? state.testEndTime.toISOString() : null,
       selectedTestNames: state.tests.map(function (test) { return test.name; }),
     };
   }
   function saveProgress() {
-    if (!state.testInProgress || persistenceBlocked) return Promise.resolve(false);
+    if (!(state.testInProgress || state.testEndTime) || persistenceBlocked) return Promise.resolve(false);
     var snapshot = progressSnapshot();
+    if (snapshot.status === "completed" && !validateSession(snapshot)) {
+      completedPersisted = false;
+      setPersistenceStatus("completedSaveFailed");
+      return Promise.resolve(false);
+    }
     var generation = sessionGeneration;
     var request = ++latestSaveRequest;
-    setPersistenceStatus("progressSaving");
+    setPersistenceStatus(snapshot.status === "completed" ? "completedSaving" : "progressSaving");
     var task = storageOperation(function () {
-      if (!state.testInProgress || persistenceBlocked) return false;
+      if (!(state.testInProgress || state.testEndTime) || persistenceBlocked || state.testEndTime && snapshot.status !== "completed") return false;
       var raw = localStorage.getItem(C.storageKey);
       if (!checkStorageSnapshot(raw)) return false;
       storageSnapshot = raw;
@@ -260,7 +283,10 @@
       storageSnapshot = serialized;
       attemptedSnapshot = null;
       progressPersisted = true;
-      if (request === latestSaveRequest) setPersistenceStatus("progressSaved");
+      if (request === latestSaveRequest) {
+        completedPersisted = snapshot.status === "completed";
+        setPersistenceStatus(completedPersisted ? "completedSaved" : "progressSaved");
+      }
       return true;
     }).catch(function (error) {
       if (generation === sessionGeneration && request === latestSaveRequest) return persistenceFailure(error);
@@ -269,19 +295,21 @@
     persistenceQueue = task;
     return task;
   }
-  function clearProgress(expected) {
-    var expectedRaw = arguments.length ? expected : storageSnapshot;
+  function clearProgress(expected, explicitClear) {
+    var hasExpected = expected !== undefined;
+    var expectedRaw = expected;
     var generation = sessionGeneration;
     var task = storageOperation(function () {
       var raw = localStorage.getItem(C.storageKey);
-      if (raw !== expectedRaw && !(attemptedSnapshot !== null && raw === attemptedSnapshot)) return blockCompetingSession();
+      if (raw !== (hasExpected ? expectedRaw : storageSnapshot) && !(attemptedSnapshot !== null && raw === attemptedSnapshot)) return blockCompetingSession();
       localStorage.removeItem(C.storageKey);
       if (localStorage.getItem(C.storageKey) !== null) throw new Error("Deletion verification failed");
       storageSnapshot = null;
       attemptedSnapshot = null;
       progressPersisted = false;
+      completedPersisted = false;
       return true;
-    }).catch(function (error) {
+    }, explicitClear).catch(function (error) {
       if (generation === sessionGeneration) return persistenceFailure(error);
       return false;
     });
@@ -290,16 +318,20 @@
   }
   function loadProgress() {
     invalidSavedSession = false;
+    unavailableCompletedRaw = null;
     var raw;
     try { raw = localStorage.getItem(C.storageKey); }
     catch (error) { return null; }
     if (raw === null) return null;
+    var parsed;
     try {
-      var saved = validateSession(JSON.parse(raw));
+      parsed = JSON.parse(raw);
+      var saved = validateSession(parsed);
       if (saved) return saved;
     } catch (error) { }
     invalidSavedSession = true;
-    clearProgress(raw);
+    if (isObject(parsed) && parsed.status === "completed") unavailableCompletedRaw = raw;
+    else clearProgress(raw);
     return null;
   }
   function clearAllData() {
@@ -330,21 +362,26 @@
     return task;
   }
   function buildProgressBackup() {
-    if (!state.testInProgress) throw new Error(ui.invalidBackup);
+    if (!(state.testInProgress || state.testEndTime)) throw new Error(ui.invalidBackup);
     var snapshot = validateSession(progressSnapshot());
     if (!snapshot) throw new Error(ui.invalidBackup);
     snapshot.backupType = "psychometric-progress";
     snapshot.generatedAt = new Date().toISOString();
     return JSON.stringify(snapshot, null, 2) + "\n";
   }
+  function downloadSessionBackup(text) {
+    var blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    var link = el("a", { download: C.export.backupFilename });
+    var url = URL.createObjectURL(blob);
+    link.href = url;
+    document.body.appendChild(link);
+    try { link.click(); } finally { link.remove(); URL.revokeObjectURL(url); }
+    return true;
+  }
   function generateProgressBackup() {
     try {
-      var blob = new Blob([buildProgressBackup()], { type: "application/json;charset=utf-8" });
-      var link = el("a", { download: C.export.backupFilename });
-      var url = URL.createObjectURL(blob);
-      link.href = url;
-      document.body.appendChild(link);
-      try { link.click(); } finally { link.remove(); URL.revokeObjectURL(url); }
+      downloadSessionBackup(buildProgressBackup());
+      if (state.testEndTime) state.resultsExported = true;
       return true;
     } catch (error) {
       alert(ui.backupDownloadFailed);
@@ -362,20 +399,29 @@
     state.testStartTime = new Date(session.testStartTime);
     state.tests = allTests.filter(function (test) { return session.selectedTestNames.indexOf(test.name) !== -1; });
     state.totalQuestions = state.tests.reduce(function (sum, test) { return sum + test.questions.length; }, 0);
-    state.testInProgress = true;
+    state.testEndTime = session.status === "completed" ? new Date(session.testEndTime) : null;
+    state.testInProgress = !state.testEndTime;
+    completedPersisted = !!state.testEndTime && raw !== null;
     empty($("#setup-area"));
     show($("#progress-container"));
     var button = $("#nextBtn");
     button.textContent = ui.nextBtn;
     button.disabled = false;
     show(button);
-    loadTest(state.tests[state.currentTestIndex]);
-    setPersistenceStatus(raw === null ? "backupRestored" : "progressSaved");
+    if (state.testEndTime) {
+      hide(button);
+      hide($("#progress-container"));
+      empty($("#instruction-area"));
+      empty($("#test-area"));
+      displayResults(calculateSummaryScores());
+      show($("#download-buttons"));
+    } else loadTest(state.tests[state.currentTestIndex]);
+    setPersistenceStatus(raw === null ? "backupRestored" : state.testEndTime ? "completedSaved" : "progressSaved");
   }
   function restoreProgressBackup(text) {
     var saved;
     try { saved = validateSession(JSON.parse(text)); } catch (error) { }
-    if (!saved || state.testInProgress) {
+    if (!saved || state.testInProgress || state.testEndTime) {
       alert(ui.invalidBackup);
       return Promise.resolve(false);
     }
@@ -493,7 +539,8 @@
       "pageTitle", "heading", "startBtn", "nextBtn", "downloadCsvBtn", "downloadPdfBtn",
       "clearDataBtn", "dataCleared", "alertClearDataFail", "consent", "participantLabel", "participantPlaceholder",
       "progressSaving", "progressSaved", "progressSaveFailed", "progressConflict", "progressStorageUnavailable",
-      "progressCompleted", "progressCompletedClearFailed", "progressCompletedConflict",
+      "completedFound", "viewResultsBtn", "clearResultsStartBtn", "completedRetention", "completedClearFailed", "completedUnavailable",
+      "completedSaving", "completedSaved", "completedSaveFailed", "completedStorageUnavailable", "completedConflict",
       "retrySaveBtn", "downloadBackupBtn", "restoreBackupLabel", "backupDownloadFailed",
       "invalidBackup", "backupRestoreConflict", "backupRestored",
       "selectTests", "items", "resumeFound", "resumeParticipant", "resumeAnswers", "resumeBtn",
@@ -632,12 +679,14 @@
     var area = $("#setup-area");
     empty(area);
     hide($("#persistence-area"));
-    var message = ui.resumeFound;
+    var completed = snapshot.status === "completed";
+    var message = completed ? ui.completedFound : ui.resumeFound;
     if (snapshot.participantId) message += " (" + ui.resumeParticipant + ": " + snapshot.participantId + ")";
     message += ": " + snapshot.answers.length + " " + ui.resumeAnswers;
-    var resume = el("button", { id: "resumeBtn", className: "btn btn-primary me-2", text: ui.resumeBtn });
-    var start = el("button", { id: "newSessionBtn", className: "btn btn-outline-secondary", text: ui.newSessionBtn });
+    var resume = el("button", { id: "resumeBtn", className: "btn btn-primary me-2", text: completed ? ui.viewResultsBtn : ui.resumeBtn });
+    var start = el("button", { id: "newSessionBtn", className: "btn btn-outline-secondary", text: completed ? ui.clearResultsStartBtn : ui.newSessionBtn });
     area.appendChild(el("div", { className: "resume-prompt" }, [el("p", { text: message }), resume, start]));
+    if (completed) area.appendChild(el("p", { className: "consent-text", text: ui.completedRetention }));
     hide($("#nextBtn"));
     resume.addEventListener("click", function () {
       if (generation !== sessionGeneration) return;
@@ -656,12 +705,59 @@
       if (generation !== sessionGeneration) return;
       if (promptRaw === undefined) { setPersistenceStatus("progressSaveFailed"); return; }
       start.disabled = true;
-      clearProgress(promptRaw).then(function (cleared) {
+      clearProgress(promptRaw, true).then(function (cleared) {
         if (generation !== sessionGeneration) return;
         if (cleared) { resetState(); showSetupScreen(); }
-        else start.disabled = false;
+        else {
+          start.disabled = false;
+          if (completed) setPersistenceStatus(persistenceBlocked ? "completedConflict" : "completedClearFailed");
+        }
       });
     });
+  }
+  function showUnavailableCompleted(raw) {
+    var generation = ++sessionGeneration;
+    var area = $("#setup-area");
+    empty(area);
+    hide($("#nextBtn"));
+    hide($("#persistence-area"));
+    var backup = el("button", { id: "downloadStoredBackup", type: "button", className: "btn btn-outline-primary me-2", text: ui.downloadBackupBtn });
+    var start = el("button", { id: "newSessionBtn", type: "button", className: "btn btn-outline-secondary", text: ui.clearResultsStartBtn });
+    area.appendChild(el("p", { role: "status", text: ui.completedUnavailable }));
+    area.appendChild(el("p", { className: "consent-text", text: ui.completedRetention }));
+    area.appendChild(backup);
+    area.appendChild(start);
+    backup.addEventListener("click", function () {
+      if (generation !== sessionGeneration) return;
+      try {
+        var current = localStorage.getItem(C.storageKey);
+        if (current !== raw) {
+          resetState();
+          if (current === null) showSetupScreen(ui.dataCleared);
+          else showStoredSession();
+          return;
+        }
+        downloadSessionBackup(raw);
+      } catch (error) { alert(ui.backupDownloadFailed); }
+    });
+    start.addEventListener("click", function () {
+      if (generation !== sessionGeneration) return;
+      start.disabled = true;
+      clearProgress(raw, true).then(function (cleared) {
+        if (generation !== sessionGeneration) return;
+        if (cleared) { resetState(); showSetupScreen(); }
+        else {
+          start.disabled = false;
+          setPersistenceStatus(persistenceBlocked ? "completedConflict" : "completedClearFailed");
+        }
+      });
+    });
+  }
+  function showStoredSession() {
+    var saved = loadProgress();
+    if (saved) showResumeScreen(saved);
+    else if (unavailableCompletedRaw !== null) showUnavailableCompleted(unavailableCompletedRaw);
+    else showSetupScreen(invalidSavedSession ? ui.invalidSession : "");
   }
   function loadTest(test) {
     var area = $("#instruction-area");
@@ -740,6 +836,24 @@
     table.appendChild(body);
     area.appendChild(el("div", { className: "table-responsive" }, [table]));
     area.appendChild(el("div", { className: "disclaimer", text: ui.disclaimer }));
+    if (state.testEndTime) {
+      area.appendChild(el("p", { className: "consent-text", text: ui.completedRetention }));
+      var start = el("button", { id: "newSessionBtn", type: "button", className: "btn btn-outline-secondary", text: ui.clearResultsStartBtn });
+      var generation = sessionGeneration;
+      start.addEventListener("click", function () {
+        if (generation !== sessionGeneration) return;
+        start.disabled = true;
+        clearProgress(undefined, true).then(function (cleared) {
+          if (generation !== sessionGeneration) return;
+          if (cleared) { resetState(); showSetupScreen(); }
+          else {
+            start.disabled = false;
+            setPersistenceStatus(persistenceBlocked ? "completedConflict" : "completedClearFailed");
+          }
+        });
+      });
+      area.appendChild(start);
+    }
     show(area);
     heading.focus();
   }
@@ -932,9 +1046,8 @@
     } else {
       state.testInProgress = false;
       state.testEndTime = new Date();
-      clearProgress().then(function (cleared) {
-        if (cleared && generation === sessionGeneration) setPersistenceStatus("progressCompleted");
-      });
+      state.currentQuestionIndex++;
+      saveProgress();
       updateProgressBar();
       hide(button);
       empty($("#instruction-area"));
@@ -971,9 +1084,7 @@
     if ($("h1")) $("h1").textContent = ui.heading;
     $("#downloadCsv").textContent = ui.downloadCsvBtn;
     $("#downloadPdf").textContent = ui.downloadPdfBtn;
-    var saved = loadProgress();
-    if (saved) showResumeScreen(saved);
-    else showSetupScreen(invalidSavedSession ? ui.invalidSession : "");
+    showStoredSession();
     document.addEventListener("keydown", function (event) {
       if (!state.testInProgress || event.metaKey || event.ctrlKey || event.altKey) return;
       var target = event.target;
@@ -1010,17 +1121,20 @@
       if (event.key !== C.storageKey && event.key !== null) return;
       var raw;
       try { raw = localStorage.getItem(C.storageKey); }
-      catch (error) { if (state.testInProgress) setPersistenceStatus("progressSaveFailed"); return; }
+      catch (error) {
+        if (state.testInProgress || state.testEndTime) persistenceFailure(error);
+        return;
+      }
       // Read current storage so a delayed event cannot invalidate a newer local save.
-      if (raw === null && event.newValue === null && (state.testInProgress || $("#resumeBtn") || state.testEndTime)) {
+      if (raw === null && event.newValue === null && (state.testInProgress || $("#resumeBtn") || $("#downloadStoredBackup") || state.testEndTime)) {
         resetState();
         showSetupScreen(ui.dataCleared);
-      } else if (state.testInProgress && raw !== storageSnapshot && raw !== attemptedSnapshot) {
+      } else if ((state.testInProgress || state.testEndTime) && raw !== storageSnapshot && raw !== attemptedSnapshot) {
         blockCompetingSession();
       }
     });
     window.addEventListener("beforeunload", function (event) {
-      if (state.testInProgress || (state.testEndTime && !state.resultsExported)) { event.preventDefault(); event.returnValue = ""; }
+      if (state.testInProgress || (state.testEndTime && !completedPersisted && !state.resultsExported)) { event.preventDefault(); event.returnValue = ""; }
     });
   }
   if (window.__TEST__) {

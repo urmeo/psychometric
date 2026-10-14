@@ -73,6 +73,32 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   var valid = savedSession(["HADS"], 0, 2);
   assert(!!T.validateSession(valid), "resume: complete valid prefix accepted");
   assert(!!T.validateSession(savedSession(["HADS"], 0, 0)), "resume: started zero-answer session accepted");
+  var completed = savedSession(C.tests.map(function (test) { return test.name; }), C.tests.length - 1, C.tests[C.tests.length - 1].questions.length);
+  completed.status = "completed";
+  completed.testEndTime = completed.answers[completed.answers.length - 1].answerTime;
+  var canonicalCompleted = T.validateSession(completed);
+  assert(!!canonicalCompleted && canonicalCompleted.status === "completed" && canonicalCompleted.testEndTime === completed.testEndTime, "completed save preserves its state and completion timestamp");
+  assert(!!canonicalCompleted && canonicalCompleted.answers.length === 88, "completed save validates all 88 canonical answers");
+  var invalidCompletedCases = [
+    ["missing completion timestamp", function (saved) { delete saved.testEndTime; }],
+    ["invalid completion timestamp", function (saved) { saved.testEndTime = "not-a-date"; }],
+    ["completion before last answer", function (saved) { saved.testEndTime = saved.testStartTime; }],
+    ["future completion", function (saved) { saved.testEndTime = new Date(Date.now() + 3600000).toISOString(); }],
+    ["missing final answer", function (saved) { saved.answers.pop(); }],
+    ["duplicate completed answer", function (saved) { saved.answers[1] = clone(saved.answers[0]); }],
+    ["edited completed score", function (saved) { saved.answers[0].score = 999; }],
+    ["unfinished final cursor", function (saved) { saved.currentQuestionIndex--; }],
+    ["wrong final instrument", function (saved) { saved.currentTestIndex = 0; }],
+    ["unknown completion status", function (saved) { saved.status = "exported"; }],
+    ["completed answers without state", function (saved) { delete saved.status; }],
+    ["obsolete completed revision", function (saved) { saved.revision = "obsolete"; }],
+    ["completed language mismatch", function (saved) { saved.lang = C.lang === "en" ? "fr" : "en"; }],
+  ];
+  invalidCompletedCases.forEach(function (entry) {
+    var saved = clone(completed);
+    entry[1](saved);
+    assert(T.validateSession(saved) === null, "completed resume rejects " + entry[0]);
+  });
   var invalidCases = [
     ["legacy version", function (saved) { delete saved.version; }],
     ["revision", function (saved) { saved.revision = "obsolete"; }],
@@ -107,6 +133,9 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
     ["answer before session", function (saved) { saved.testStartTime = "2026-01-02T00:00:00.000Z"; }],
     ["future start", function (saved) { saved.testStartTime = new Date(Date.now() + 3600000).toISOString(); }],
     ["future answer", function (saved) { saved.answers[1].questionStartTime = new Date(Date.now() + 3600000).toISOString(); saved.answers[1].answerTime = new Date(Date.now() + 3601000).toISOString(); }],
+    ["completion timestamp on unfinished save", function (saved) { saved.testEndTime = saved.answers[1].answerTime; }],
+    ["unknown session status", function (saved) { saved.status = "unknown"; }],
+    ["incomplete answers marked completed", function (saved) { saved.status = "completed"; saved.testEndTime = saved.answers[1].answerTime; }],
   ];
   invalidCases.forEach(function (entry) {
     var saved = clone(valid);

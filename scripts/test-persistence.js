@@ -35,7 +35,7 @@ async function openPage(context, origin, lang, options = {}) {
     if (ignoreStorageEvents) window.addEventListener("storage", (event) => event.stopImmediatePropagation(), true);
   }, !!options.ignoreStorageEvents);
   await page.goto(origin + "/" + lang + "/index.html", { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#participantIdInput, #resumeBtn");
+  await page.waitForSelector("#participantIdInput, #resumeBtn, #downloadStoredBackup");
   return page;
 }
 
@@ -82,9 +82,10 @@ async function status(page) {
       answers: T.state.answers,
       cursor: T.state.currentQuestionIndex,
       active: T.state.testInProgress,
+      completed: !!T.state.testEndTime,
       nextDisabled: document.getElementById("nextBtn").disabled,
       raw: localStorage.getItem(C.storageKey),
-      backup: T.state.testInProgress ? JSON.parse(T.buildProgressBackup()) : null,
+      backup: T.state.testInProgress || T.state.testEndTime ? JSON.parse(T.buildProgressBackup()) : null,
     };
   });
 }
@@ -183,7 +184,7 @@ async function waitForDownload(directory, filename) {
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error(`Backup download did not finish: ${filename}`);
+  throw new Error(`Download did not finish: ${filename}`);
 }
 
 async function backupCases(context, origin, lang, directory) {
@@ -400,56 +401,179 @@ async function staleStartNewCase(context, origin, lang) {
   await Promise.all([first.close(), second.close()]);
 }
 
-async function seedNearCompletion(page) {
-  await page.evaluate(() => {
+async function seedNearCompletion(page, allTests = false) {
+  await page.evaluate((includeAllTests) => {
     const T = window.__TEST__, C = window.CONFIG;
-    const test = C.tests.find((item) => item.name === "HADS");
-    const start = Date.now() - 60000;
+    const tests = includeAllTests ? C.tests : C.tests.filter((item) => item.name === "HADS");
+    const test = tests[tests.length - 1];
+    const start = Date.now() - 600000;
+    const questions = tests.flatMap((item) => item.questions.map((question, index) => ({ test: item, question, index })));
     const saved = {
       version: 1, lang: C.lang, revision: C.revision, configSignature: T.configSignature(),
-      participantId: "near completion", selectedTestNames: [test.name], currentTestIndex: 0,
+      participantId: "near completion", selectedTestNames: tests.map((item) => item.name), currentTestIndex: tests.length - 1,
       currentQuestionIndex: test.questions.length - 1, testStartTime: new Date(start).toISOString(),
-      answers: test.questions.slice(0, -1).map((question, index) => ({
-        test: test.name, questionIndex: index + 1, optionIndex: 0,
-        question: question.q, answer: question.options[0], score: question.scores[0], description: "", time: 1,
-        questionStartTime: new Date(start + index * 1000).toISOString(),
-        answerTime: new Date(start + (index + 1) * 1000).toISOString(),
+      answers: questions.slice(0, -1).map((item, sequence) => ({
+        test: item.test.name, questionIndex: item.index + 1, optionIndex: 0,
+        question: item.question.q, answer: item.question.options[0], score: item.question.scores[0],
+        description: item.question.description ? "cœur, recovery" : "", time: 1,
+        questionStartTime: new Date(start + sequence * 1000).toISOString(),
+        answerTime: new Date(start + (sequence + 1) * 1000).toISOString(),
       })),
     };
     localStorage.setItem(C.storageKey, JSON.stringify(saved));
     T.showResumeScreen(saved);
     document.getElementById("resumeBtn").click();
-  });
+  }, allTests);
   await settled(page);
 }
 
-async function completionCases(context, origin, lang) {
-  const first = await openPage(context, origin, lang);
-  await first.evaluate(() => window.__TEST__.clearAllData());
-  await seedNearCompletion(first);
-  await first.evaluate(() => {
-    const remove = Storage.prototype.removeItem;
-    window.restoreTestRemove = () => { Storage.prototype.removeItem = remove; };
-    Storage.prototype.removeItem = function (key) {
-      if (this === localStorage && key === window.CONFIG.storageKey) throw new Error("Deletion denied");
-      return remove.apply(this, arguments);
+async function completedSnapshot(page) {
+  return page.evaluate(() => {
+    const T = window.__TEST__;
+    return {
+      active: T.state.testInProgress, answers: T.state.answers,
+      started: T.state.testStartTime && T.state.testStartTime.toISOString(),
+      completed: T.state.testEndTime && T.state.testEndTime.toISOString(),
+      summary: T.calculateSummaryScores(),
+      resultsVisible: !document.getElementById("results-area").classList.contains("hidden"),
+      exportsVisible: !document.getElementById("download-buttons").classList.contains("hidden"),
+      questionVisible: !!document.querySelector("#test-area .question"),
     };
   });
-  await answer(first, 0);
-  const failed = await first.evaluate(() => ({
-    completed: !!window.__TEST__.state.testEndTime,
-    raw: localStorage.getItem(window.CONFIG.storageKey),
-    text: document.getElementById("persistence-status").textContent,
-    expected: window.CONFIG.ui.progressCompletedClearFailed,
-    csv: window.__TEST__.buildCSV(),
-    backupHidden: document.getElementById("downloadBackup").classList.contains("hidden"),
+}
+
+async function unloadPrevented(page) {
+  return page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+}
+
+async function completedRecoveryCase(context, origin, lang, directory) {
+  let page = await openPage(context, origin, lang);
+  await page.evaluate(() => window.__TEST__.clearAllData());
+  await seedNearCompletion(page, true);
+  await answer(page, 0);
+  const finished = await status(page);
+  const expected = await completedSnapshot(page);
+  assert.equal(finished.text, finished.expected.completedSaved, `${lang}: completion announces verified browser retention`);
+  assert.equal(finished.active, false, `${lang}: completion stops questionnaire input`);
+  assert.equal(finished.backup.status, "completed", `${lang}: completed results remain available as a recoverable backup`);
+  const stored = JSON.parse(finished.raw);
+  assert.equal(stored.status, "completed", `${lang}: completion persists an explicit completed state`);
+  assert.equal(stored.answers.length, 88, `${lang}: completion saves all 88 responses`);
+  assert.equal(stored.testEndTime, expected.completed, `${lang}: completed storage freezes the final timestamp`);
+  assert.deepEqual(stored.answers, expected.answers, `${lang}: completed storage preserves answers and per-item timing`);
+  assert.equal(await unloadPrevented(page), false, `${lang}: verified completed recovery allows closing before export`);
+  await page.close();
+
+  page = await openPage(context, origin, lang);
+  const prompt = await page.evaluate(() => ({
+    text: document.getElementById("setup-area").textContent,
+    resume: document.getElementById("resumeBtn").textContent,
+    clear: document.getElementById("newSessionBtn").textContent,
+    expected: window.CONFIG.ui,
   }));
-  assert.equal(failed.completed, true, `${lang}: final answer still produces complete results if deletion fails`);
-  assert.ok(failed.raw, `${lang}: completion deletion failure leaves its prior saved prefix`);
-  assert.ok(failed.text.includes(failed.expected), `${lang}: completion reports saved data may remain`);
-  assert.ok(failed.csv.length > 1000, `${lang}: completion failure preserves complete CSV export`);
-  assert.equal(failed.backupHidden, true, `${lang}: completed results offer full exports`);
-  await first.evaluate(() => window.restoreTestRemove());
+  assert.ok(prompt.text.includes(prompt.expected.completedFound), `${lang}: reopening offers completed-result recovery with retention guidance`);
+  assert.equal(prompt.resume, prompt.expected.viewResultsBtn, `${lang}: completed recovery offers View results`);
+  assert.equal(prompt.clear, prompt.expected.clearResultsStartBtn, `${lang}: starting again explicitly clears completed results`);
+  await click(page, "#resumeBtn");
+  await settled(page);
+  assert.deepEqual(await completedSnapshot(page), expected, `${lang}: close and reopen recovers all answers, frozen timing, and summary before any export`);
+  assert.equal(expected.resultsVisible, true, `${lang}: completed recovery shows scored results`);
+  assert.equal(expected.exportsVisible, true, `${lang}: completed recovery shows export controls`);
+  assert.equal(expected.questionVisible, false, `${lang}: completed recovery never asks another question`);
+  const filenames = await page.evaluate(() => window.CONFIG.export);
+  for (const [selector, filename, type] of [
+    ["#downloadCsv", filenames.csvFilename, "CSV"],
+    ["#downloadPdf", filenames.pdfFilename, "PDF"],
+    ["#downloadBackup", filenames.backupFilename, "JSON"],
+  ]) {
+    await fs.rm(path.join(directory, filename), { force: true });
+    await click(page, selector);
+    const download = await waitForDownload(directory, filename);
+    if (type === "CSV") {
+      assert.ok(download.bytes.toString("utf8").includes(expected.completed), `${lang}: recovered CSV contains original completion time`);
+    } else if (type === "PDF") {
+      assert.equal(download.bytes.subarray(0, 5).toString("ascii"), "%PDF-", `${lang}: recovered results download a real PDF`);
+    } else {
+      const backup = JSON.parse(download.bytes.toString("utf8"));
+      assert.equal(backup.status, "completed", `${lang}: completed JSON download records recovery state`);
+      assert.deepEqual(backup.answers, expected.answers, `${lang}: completed JSON download preserves all 88 answers`);
+      assert.equal(backup.testEndTime, expected.completed, `${lang}: completed JSON download preserves completion timestamp`);
+    }
+    assert.equal((await status(page)).raw, finished.raw, `${lang}: ${type} export keeps the recoverable browser copy`);
+  }
+  await page.close();
+
+  page = await openPage(context, origin, lang);
+  await click(page, "#resumeBtn");
+  await settled(page);
+  assert.deepEqual(await completedSnapshot(page), expected, `${lang}: reopening after exports still recovers completed results`);
+  await click(page, "#clearDataBtn");
+  await settled(page);
+  assert.equal((await status(page)).raw, null, `${lang}: explicit Clear Data removes completed browser copy`);
+  assert.equal((await status(page)).completed, false, `${lang}: explicit Clear Data removes completed in-memory results`);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  assert.equal(await page.$("#resumeBtn"), null, `${lang}: explicitly cleared completed results do not return after reload`);
+  const input = await page.$("#restoreBackupInput");
+  await input.uploadFile(path.join(directory, filenames.backupFilename));
+  await page.waitForFunction(() => !!window.__TEST__.state.testEndTime, { polling: 50 });
+  await settled(page);
+  assert.deepEqual(await completedSnapshot(page), expected, `${lang}: actual completed backup import restores finished results without repeating questions`);
+  const restored = await status(page);
+  assert.equal(restored.text, restored.expected.completedSaved, `${lang}: restored completed results verify persistence`);
+  assert.equal(JSON.parse(restored.raw).status, "completed", `${lang}: restored completed backup saves completed browser state`);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await click(page, "#newSessionBtn");
+  await settled(page);
+  assert.equal((await status(page)).raw, null, `${lang}: explicit Clear results and start again removes completed browser state`);
+  assert.ok(await page.$("#participantIdInput"), `${lang}: clearing completed results starts at setup`);
+  await page.close();
+}
+
+async function completedWriteFailureCases(context, origin, lang) {
+  for (const mode of ["throw", "no-op", "pre-read", "verify-read"]) {
+    const page = await openPage(context, origin, lang);
+    await page.evaluate(() => window.__TEST__.clearAllData());
+    await seedNearCompletion(page);
+    const prior = (await status(page)).raw;
+    await injectWriteFailure(page, mode);
+    await answer(page, 0);
+    const failed = await page.evaluate(() => ({
+      completed: !!window.__TEST__.state.testEndTime,
+      text: document.getElementById("persistence-status").textContent,
+      expected: window.CONFIG.ui.completedSaveFailed,
+      backup: JSON.parse(window.__TEST__.buildProgressBackup()),
+      backupVisible: !document.getElementById("downloadBackup").classList.contains("hidden"),
+      retryVisible: !document.getElementById("retrySave").classList.contains("hidden"),
+      csv: window.__TEST__.buildCSV(),
+    }));
+    assert.equal(failed.completed, true, `${lang}: ${mode} preserves completed results in memory`);
+    assert.equal(failed.text, failed.expected, `${lang}: ${mode} explains completed results are not confirmed saved`);
+    assert.equal(failed.backup.status, "completed", `${lang}: ${mode} completed backup has explicit recovery state`);
+    assert.equal(failed.backup.answers.length, 14, `${lang}: ${mode} completed backup includes final response`);
+    assert.equal(failed.backupVisible, true, `${lang}: ${mode} completed failure offers backup export`);
+    assert.equal(failed.retryVisible, true, `${lang}: ${mode} completed failure offers retry`);
+    assert.ok(failed.csv.length > 1000, `${lang}: ${mode} completed failure preserves full CSV export`);
+    assert.equal(await unloadPrevented(page), true, `${lang}: ${mode} older saved prefix never suppresses unsaved-results close warning`);
+    await page.evaluate(() => window.restoreTestStorage());
+    if (mode !== "verify-read") assert.equal((await status(page)).raw, prior, `${lang}: ${mode} never discards saved prefix after failed completed write`);
+    await click(page, "#retrySave");
+    await settled(page);
+    const retried = await status(page);
+    assert.equal(retried.text, retried.expected.completedSaved, `${lang}: ${mode} completed-save retry confirms recovery`);
+    assert.equal(JSON.parse(retried.raw).testEndTime, failed.backup.testEndTime, `${lang}: ${mode} retry preserves original completion timestamp`);
+    assert.deepEqual(JSON.parse(retried.raw).answers, failed.backup.answers, `${lang}: ${mode} retry persists all completed answers`);
+    assert.equal(await unloadPrevented(page), false, `${lang}: ${mode} completed-save retry makes closing recoverable`);
+    await page.evaluate(() => window.__TEST__.clearAllData());
+    await page.close();
+  }
+}
+
+async function completedConflictCase(context, origin, lang) {
+  const first = await openPage(context, origin, lang);
   await first.evaluate(() => window.__TEST__.clearAllData());
   await seedNearCompletion(first);
   const second = await openPage(context, origin, lang, { ignoreStorageEvents: true });
@@ -471,15 +595,170 @@ async function completionCases(context, origin, lang) {
     completed: !!window.__TEST__.state.testEndTime,
     raw: localStorage.getItem(window.CONFIG.storageKey),
     text: document.getElementById("persistence-status").textContent,
-    expected: window.CONFIG.ui.progressCompletedConflict,
+    expected: window.CONFIG.ui.completedConflict,
     csv: window.__TEST__.buildCSV(),
+    backup: JSON.parse(window.__TEST__.buildProgressBackup()),
   }));
   assert.equal(completed.completed, true, `${lang}: pending completion retains finished local results`);
-  assert.equal(completed.raw, winner.raw, `${lang}: pending completion cannot remove a newer saved revision`);
+  assert.equal(completed.raw, winner.raw, `${lang}: pending completion cannot overwrite a newer saved revision`);
   assert.ok(completed.text.includes(completed.expected), `${lang}: completion explains competing saved session`);
   assert.ok(completed.csv.length > 1000, `${lang}: completion conflict preserves full result export`);
+  assert.equal(completed.backup.answers.length, 14, `${lang}: completion conflict preserves final answer in backup`);
+  assert.equal(completed.backup.status, "completed", `${lang}: completion conflict backup remains recoverable as finished results`);
+  assert.equal(await unloadPrevented(first), true, `${lang}: competing saved draft never suppresses unsaved completed-results close warning`);
   await first.evaluate(() => window.__TEST__.clearAllData());
   await Promise.all([first.close(), second.close()]);
+}
+
+async function staleCompletedClearCase(context, origin, lang) {
+  const first = await openPage(context, origin, lang);
+  await first.evaluate(() => window.__TEST__.clearAllData());
+  await seedNearCompletion(first);
+  await answer(first, 0);
+  const second = await openPage(context, origin, lang, { ignoreStorageEvents: true });
+  await first.evaluate(() => window.__TEST__.saveProgress());
+  const winner = await status(first);
+  await click(second, "#newSessionBtn");
+  await settled(second);
+  const stale = await second.evaluate(() => ({
+    raw: localStorage.getItem(window.CONFIG.storageKey),
+    text: document.getElementById("persistence-status").textContent,
+    expected: window.CONFIG.ui.completedConflict,
+    viewPresent: !!document.getElementById("resumeBtn"),
+  }));
+  assert.equal(stale.raw, winner.raw, `${lang}: stale clear-and-start prompt cannot delete a newer completed revision`);
+  assert.equal(stale.text, stale.expected, `${lang}: stale completed clear explains saved-results conflict`);
+  assert.equal(stale.viewPresent, true, `${lang}: stale completed clear retains results recovery action`);
+  await click(second, "#resumeBtn");
+  await settled(second);
+  assert.equal((await status(second)).completed, true, `${lang}: stale completed prompt safely recovers current revision`);
+  await first.evaluate(() => window.__TEST__.clearAllData());
+  await Promise.all([first.close(), second.close()]);
+}
+
+async function completedClearFailureCase(context, origin, lang) {
+  const page = await openPage(context, origin, lang);
+  await page.evaluate(() => window.__TEST__.clearAllData());
+  await seedNearCompletion(page);
+  await answer(page, 0);
+  const before = await status(page);
+  await page.evaluate(() => {
+    const remove = Storage.prototype.removeItem;
+    window.restoreTestRemove = () => { Storage.prototype.removeItem = remove; };
+    Storage.prototype.removeItem = function (key) {
+      if (this === localStorage && key === window.CONFIG.storageKey) throw new Error("Deletion denied");
+      return remove.apply(this, arguments);
+    };
+  });
+  await click(page, "#newSessionBtn");
+  await settled(page);
+  const failed = await status(page);
+  assert.equal(failed.raw, before.raw, `${lang}: denied clear-and-start keeps recoverable completed storage`);
+  assert.equal(failed.completed, true, `${lang}: denied clear-and-start keeps completed in-memory results`);
+  assert.deepEqual(failed.answers, before.answers, `${lang}: denied clear-and-start preserves every completed answer`);
+  assert.notEqual(failed.text, failed.expected.completedSaved, `${lang}: denied clear-and-start reports failure`);
+  assert.equal((await completedSnapshot(page)).resultsVisible, true, `${lang}: denied clear-and-start keeps full results visible`);
+  await page.evaluate(() => window.restoreTestRemove());
+  await click(page, "#newSessionBtn");
+  await settled(page);
+  const cleared = await status(page);
+  assert.equal(cleared.raw, null, `${lang}: clear-and-start retry verifies completed storage removal`);
+  assert.equal(cleared.completed, false, `${lang}: clear-and-start retry clears in-memory completed results`);
+  assert.ok(await page.$("#participantIdInput"), `${lang}: clear-and-start retry returns to setup`);
+  await seedNearCompletion(page);
+  await answer(page, 0);
+  await page.evaluate(() => { window.detachedCompletedClear = document.getElementById("newSessionBtn"); });
+  await page.evaluate(() => window.__TEST__.clearAllData());
+  await start(page, "new session after completed results");
+  const fresh = await status(page);
+  await page.evaluate(() => window.detachedCompletedClear.click());
+  await settled(page);
+  const afterDetachedClick = await status(page);
+  assert.equal(afterDetachedClick.raw, fresh.raw, `${lang}: detached old completed-results clear cannot delete a new session`);
+  assert.equal(afterDetachedClick.active, true, `${lang}: detached old completed-results clear cannot reset current questionnaire`);
+  assert.equal(afterDetachedClick.backup.participantId, "new session after completed results", `${lang}: detached completed clear preserves current participant`);
+  await page.evaluate(() => window.__TEST__.clearAllData());
+  await page.close();
+}
+
+async function incompatibleCompletedRecoveryCase(context, origin, lang) {
+  const page = await openPage(context, origin, lang);
+  await page.evaluate(() => window.__TEST__.clearAllData());
+  await seedNearCompletion(page);
+  await answer(page, 0);
+  const original = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem(window.CONFIG.storageKey));
+    saved.revision = "obsolete";
+    const raw = JSON.stringify(saved);
+    localStorage.setItem(window.CONFIG.storageKey, raw);
+    return raw;
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#downloadStoredBackup");
+  await settled(page);
+  const unavailable = await page.evaluate(() => ({
+    raw: localStorage.getItem(window.CONFIG.storageKey),
+    text: document.getElementById("setup-area").textContent,
+    expected: window.CONFIG.ui.completedUnavailable,
+    active: window.__TEST__.state.testInProgress,
+    answers: window.__TEST__.state.answers.length,
+    resultVisible: !document.getElementById("results-area").classList.contains("hidden"),
+    question: !!document.querySelector("#test-area .question"),
+    clearLabel: document.getElementById("newSessionBtn").textContent,
+    expectedClear: window.CONFIG.ui.clearResultsStartBtn,
+  }));
+  assert.equal(unavailable.raw, original, `${lang}: incompatible completed record survives reload unchanged`);
+  assert.ok(unavailable.text.includes(unavailable.expected), `${lang}: incompatible completed record explains export and explicit clearing`);
+  assert.equal(unavailable.active, false, `${lang}: incompatible completed record never starts questionnaire input`);
+  assert.equal(unavailable.answers, 0, `${lang}: incompatible completed record never enters live scoring state`);
+  assert.equal(unavailable.resultVisible, false, `${lang}: incompatible completed record never displays stale scores`);
+  assert.equal(unavailable.question, false, `${lang}: incompatible completed record never displays questions`);
+  assert.equal(unavailable.clearLabel, unavailable.expectedClear, `${lang}: incompatible completed recovery labels destructive clearing explicitly`);
+  const backup = await page.evaluate(async () => {
+    const create = URL.createObjectURL;
+    const anchorClick = HTMLAnchorElement.prototype.click;
+    let blob, filename;
+    URL.createObjectURL = (value) => { blob = value; return "blob:completed-backup-test"; };
+    HTMLAnchorElement.prototype.click = function () { filename = this.download; };
+    try {
+      document.getElementById("downloadStoredBackup").click();
+      return { text: blob && await blob.text(), filename, expectedFilename: window.CONFIG.export.backupFilename };
+    } finally {
+      URL.createObjectURL = create;
+      HTMLAnchorElement.prototype.click = anchorClick;
+    }
+  });
+  assert.equal(backup.text, original, `${lang}: incompatible completed backup preserves original JSON without normalization`);
+  assert.equal(backup.filename, backup.expectedFilename, `${lang}: incompatible completed backup uses downloadable JSON filename`);
+  assert.equal((await status(page)).raw, original, `${lang}: incompatible completed backup export retains browser record`);
+  await click(page, "#newSessionBtn");
+  await settled(page);
+  assert.equal((await status(page)).raw, null, `${lang}: explicit clear-and-start removes incompatible completed record`);
+  assert.ok(await page.$("#participantIdInput"), `${lang}: explicit incompatible-record clear returns to setup`);
+  await page.evaluate((raw) => localStorage.setItem(window.CONFIG.storageKey, raw), original);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#downloadStoredBackup");
+  const externalClear = await page.evaluate(() => {
+    const oldBackup = document.getElementById("downloadStoredBackup");
+    localStorage.removeItem(window.CONFIG.storageKey);
+    const create = URL.createObjectURL;
+    let downloads = 0;
+    URL.createObjectURL = () => { downloads++; return "blob:detached-completed-backup-test"; };
+    let promptPresent, setupPresent;
+    try {
+      oldBackup.click();
+      promptPresent = !!document.getElementById("downloadStoredBackup");
+      setupPresent = !!document.getElementById("participantIdInput");
+      window.dispatchEvent(new StorageEvent("storage", { key: window.CONFIG.storageKey, newValue: null, storageArea: localStorage }));
+      oldBackup.click();
+    }
+    finally { URL.createObjectURL = create; }
+    return { downloads, promptPresent, setupPresent };
+  });
+  assert.equal(externalClear.promptPresent, false, `${lang}: backup click before storage-event delivery invalidates cleared completed prompt`);
+  assert.equal(externalClear.setupPresent, true, `${lang}: backup click before storage-event delivery returns to setup after external clear`);
+  assert.equal(externalClear.downloads, 0, `${lang}: pre-event and detached incompatible-results backup clicks cannot recover explicitly cleared data`);
+  await page.close();
 }
 
 async function failedFirstSaveCase(context, origin, lang) {
@@ -517,6 +796,13 @@ async function missingLocksCase(browser, origin, lang) {
     const after = await status(page);
     assert.equal(after.backup.answers.length, 1, `${lang}: memory-only answers remain available for backup`);
     assert.equal(after.raw, null, `${lang}: memory-only answer never reaches storage`);
+    await page.evaluate(() => window.__TEST__.clearAllData());
+    await seedNearCompletion(page);
+    await answer(page, 0);
+    const finished = await status(page);
+    assert.equal(finished.text, finished.expected.completedStorageUnavailable, `${lang}: completed results explain unavailable browser recovery`);
+    assert.equal(finished.backup.status, "completed", `${lang}: missing Web Locks offers finished-result backup`);
+    assert.equal(finished.backup.answers.length, 14, `${lang}: missing Web Locks preserves final answer in completed backup`);
     await page.evaluate(() => localStorage.setItem(window.CONFIG.storageKey, "old saved responses"));
     await page.evaluate(() => window.__TEST__.clearAllData());
     const cleared = await page.evaluate(() => ({ raw: localStorage.getItem(window.CONFIG.storageKey), text: document.querySelector('#setup-area [role="status"]').textContent, expected: window.CONFIG.ui.dataCleared }));
@@ -558,9 +844,14 @@ module.exports = async function runPersistenceTests(browser) {
       await queuedSameTabSavesCase(context, origin, lang);
       await queuedClearCase(context, origin, lang);
       await staleStartNewCase(context, origin, lang);
-      await completionCases(context, origin, lang);
+      await completedRecoveryCase(context, origin, lang, directory);
+      await completedWriteFailureCases(context, origin, lang);
+      await completedConflictCase(context, origin, lang);
+      await staleCompletedClearCase(context, origin, lang);
+      await completedClearFailureCase(context, origin, lang);
+      await incompatibleCompletedRecoveryCase(context, origin, lang);
       await missingLocksCase(browser, origin, lang);
-      console.log(`  ${lang}: verified save failures/recovery, actual backup download/import, concurrent saves, and memory-only fallback.`);
+      console.log(`  ${lang}: verified save failures/recovery, concurrent tabs, completed-result reopening/retention/clearing, actual CSV/PDF/JSON recovery exports, backup import, and memory-only fallback.`);
     }
     await localeIndependenceCase(context, origin);
     console.log("  Separate English and French tabs save independently.");
