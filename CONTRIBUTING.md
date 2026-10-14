@@ -19,6 +19,10 @@ npm audit --audit-level=high
 
 Check both languages and actual downloads. Use synthetic responses in tests, screenshots and reports.
 
+GitHub Actions runs these checks on Node.js 22 and 24. After both pass on `main`, it publishes the app to GitHub Pages. Pull requests run checks without deploying. The workflow can also be run manually on `main` to verify and redeploy the current version.
+
+`npm run prepare:site` creates a fresh `_site/` directory with the application pages, assets, software license and instrument notices. The deployment uploads that directory. Source PDFs, test code, npm dependencies and report downloads are excluded.
+
 For persistence changes, also check these behaviors:
 
 - Submit an answer with **Next** and confirm the saved status. Block writes, submit another answer, and confirm that saving fails visibly while retry and JSON backup remain available. A browser without safe saving support must direct the participant to keep the tab open and download a backup.

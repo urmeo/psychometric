@@ -9,6 +9,6 @@
 | BFI-10 | © Oliver P. John, Berkeley Personality Lab. [Research terms](https://www.ocf.berkeley.edu/~johnlab/bfi.html). |
 | FQ | © Isaac M. Marks. Marks & Mathews (1979); confirm permission for the intended use. |
 
-Original forms remain in [English](docs/english/) and [French](docs/french/). The English FQ note lists six anxiety/depression items but a 0–40 range. Scoring uses five fixed items; optional other feelings stay separate.
+Original forms remain in [English](https://github.com/urmeo/psychometric/tree/main/docs/english) and [French](https://github.com/urmeo/psychometric/tree/main/docs/french). The English FQ note lists six anxiety/depression items but a 0–40 range. Scoring uses five fixed items; optional other feelings stay separate.
 
 Bundled libraries: Bootstrap **5.1.3** and jsPDF **4.2.1**, MIT. Their original copyright/license headers remain in `assets/vendor/`. `npm run check:vendor` verifies jsPDF against its locked package.
