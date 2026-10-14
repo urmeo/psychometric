@@ -54,6 +54,8 @@ npm audit --audit-level=high
 
 Puppeteer runs browser tests for scoring, persistence, recovery and actual CSV/PDF downloads in both languages. The vendor check compares bundled jsPDF with its locked npm package. See [CONTRIBUTING.md](CONTRIBUTING.md) for change and review guidance.
 
+GitHub Actions checks Node.js 22 and 24 before deploying `main` to GitHub Pages.
+
 Language pages live in `en/` and `fr/`. Application code, styles and translations are in `assets/`. The `docs/` directory contains source instrument PDFs; `scripts/` and `tests/` contain verification code.
 
 ## License and references
