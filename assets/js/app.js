@@ -219,7 +219,7 @@
     area.classList.toggle("persistence-warning", key !== "progressSaved" && key !== "completedSaved" && key !== "progressSaving" && key !== "completedSaving");
     var hasSession = state.testInProgress || state.testEndTime;
     $("#downloadBackup").classList.toggle("hidden", !hasSession);
-    $("#retrySave").classList.toggle("hidden", !hasSession || persistenceBlocked || key !== "progressSaveFailed" && key !== "completedSaveFailed");
+    $("#retrySave").classList.toggle("hidden", !hasSession || persistenceBlocked || key !== "progressSaveFailed" && key !== "completedSaveFailed" && key !== "clockChanged");
     show(area);
   }
   function storageOperation(action, explicitClear) {
@@ -295,14 +295,14 @@
   function saveProgress() {
     if (!(state.testInProgress || state.testEndTime) || persistenceBlocked) return Promise.resolve(false);
     var snapshot = progressSnapshot();
-    if (!validateSession(snapshot)) {
+    var snapshotValid = !!validateSession(snapshot);
+    if (!snapshotValid) {
       completedPersisted = false;
       setPersistenceStatus(validateSession(snapshot, true) ? "clockChanged" : snapshot.status === "completed" ? "completedSaveFailed" : "progressSaveFailed");
-      return Promise.resolve(false);
     }
     var generation = sessionGeneration;
     var request = ++latestSaveRequest;
-    setPersistenceStatus(snapshot.status === "completed" ? "completedSaving" : "progressSaving");
+    if (snapshotValid) setPersistenceStatus(snapshot.status === "completed" ? "completedSaving" : "progressSaving");
     var task = storageOperation(function () {
       if (!(state.testInProgress || state.testEndTime) || persistenceBlocked || state.testEndTime && snapshot.status !== "completed") return false;
       if (!checkClearEpoch()) return false;

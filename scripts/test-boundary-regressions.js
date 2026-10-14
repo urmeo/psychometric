@@ -215,19 +215,31 @@ async function deniedDownloadCase(context, origin, lang, directory) {
     assert.equal(guarded.savedAnswers, 13, `${lang}: the saved draft alone cannot recover the final response`);
   }
   assert.deepEqual(await fs.readdir(directory), [], `${lang}: the browser saved none of the denied download requests`);
-  const rolledBackCompletion = await page.evaluate(() => {
+  const rolledBackCompletion = await page.evaluate(async () => {
     const T = window.__TEST__;
     const completedAt = T.state.testEndTime.toISOString();
     window.auditClockOffset = -120000;
+    const saved = await T.saveProgress();
     const backup = JSON.parse(T.buildProgressBackup());
     const strictRejected = T.validateSession(backup) === null;
-    window.auditClockOffset = 0;
-    return { backup, completedAt, strictRejected };
+    return {
+      backup, completedAt, strictRejected, saved,
+      text: document.getElementById("persistence-status").textContent, expected: window.CONFIG.ui.clockChanged,
+      retryVisible: !document.getElementById("retrySave").classList.contains("hidden"),
+      nextHidden: document.getElementById("nextBtn").classList.contains("hidden"),
+    };
   });
   assert.equal(rolledBackCompletion.backup.answers.length, 14, `${lang}: completed backup remains available after a clock correction`);
   assert.equal(rolledBackCompletion.backup.testEndTime, rolledBackCompletion.completedAt, `${lang}: trusted completed backup preserves the original completion timestamp`);
   assert.equal(rolledBackCompletion.strictRejected, true, `${lang}: completed imports keep strict clock validation`);
-  await page.evaluate(async () => { window.restoreAuditStorage(); await window.__TEST__.saveProgress(); });
+  assert.equal(rolledBackCompletion.saved, false, `${lang}: completed autosave rejects a corrected clock without changing its timestamps`);
+  assert.equal(rolledBackCompletion.text, rolledBackCompletion.expected, `${lang}: completed results explain the clock correction`);
+  assert.equal(rolledBackCompletion.nextHidden, true, `${lang}: completed results have no Next control`);
+  assert.equal(rolledBackCompletion.retryVisible, true, `${lang}: completed clock recovery offers an actionable saving retry`);
+  await page.evaluate(() => { window.auditClockOffset = 0; window.restoreAuditStorage(); });
+  await page.bringToFront();
+  await page.locator("#retrySave").click();
+  await page.evaluate(() => window.__TEST__.whenPersistenceSettled());
   const recovered = await page.evaluate(() => {
     const event = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(event);

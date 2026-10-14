@@ -263,6 +263,50 @@ async function scopedMarkerReadRetryCase(context, origin, lang) {
   await page.close();
 }
 
+async function clockRollbackAfterClearCase(context, origin, lang) {
+  const memory = await open(context, origin, lang, true);
+  await startSession(memory, "memory-only responses before clock rollback", true);
+  await submitAnswer(memory);
+  const owner = await open(context, origin, lang);
+  assert.equal(await owner.evaluate(() => window.__TEST__.clearAllData()), true, `${lang}: clearing before clock rollback succeeds`);
+  const retried = await memory.evaluate(async () => {
+    const RealDate = window.Date;
+    const set = Storage.prototype.setItem;
+    let writes = 0;
+    window.restoreResponseWrites();
+    const restoredSet = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key) {
+      if (this === localStorage && key === window.CONFIG.storageKey) writes++;
+      return restoredSet.apply(this, arguments);
+    };
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [RealDate.now() - 120000])); }
+      static now() { return RealDate.now() - 120000; }
+    };
+    try {
+      const snapshotValid = !!window.__TEST__.validateSession(JSON.parse(window.__TEST__.buildProgressBackup()));
+      const result = await window.__TEST__.saveProgress();
+      return {
+        snapshotValid,
+        result,
+        active: window.__TEST__.state.testInProgress,
+        answers: window.__TEST__.state.answers.length,
+        raw: localStorage.getItem(window.CONFIG.storageKey),
+        status: document.querySelector('#setup-area [role="status"]')?.textContent,
+        expectedStatus: window.CONFIG.ui.dataCleared,
+        writes,
+      };
+    } finally { window.Date = RealDate; Storage.prototype.setItem = set; }
+  });
+  assert.equal(retried.snapshotValid, false, `${lang}: rollback makes the pending snapshot invalid before retry`);
+  assert.equal(retried.active, false, `${lang}: explicit clearing invalidates an old session before refusing its clock-invalid snapshot; ${JSON.stringify(retried)}`);
+  assert.equal(retried.answers, 0, `${lang}: clock rollback cannot retain responses after explicit clearing`);
+  assert.equal(retried.raw, null, `${lang}: clock rollback cannot resurrect cleared responses`);
+  assert.equal(retried.writes, 0, `${lang}: invalid/cleared snapshot never writes responses`);
+  assert.equal(retried.status, retried.expectedStatus, `${lang}: retry explains that another tab cleared the session`);
+  await Promise.all([memory.close(), owner.close()]);
+}
+
 module.exports = async function runReviewRegressions(browser) {
   const server = http.createServer(async (request, response) => {
     try {
@@ -370,7 +414,8 @@ module.exports = async function runReviewRegressions(browser) {
       await scopedClearGenerationCase(context, origin, lang);
       await scopedMarkerReadRetryCase(context, origin, lang);
       await failedClearMarkerCase(context, origin, lang);
-      console.log(`  ${lang}: cross-tab clearing invalidates unsaved sessions, delayed events preserve new sessions, scoped retry is idempotent, and marker failures are reported.`);
+      await clockRollbackAfterClearCase(context, origin, lang);
+      console.log(`  ${lang}: cross-tab clearing invalidates unsaved sessions even after clock rollback, delayed events preserve new sessions, scoped retry is idempotent, and marker failures are reported.`);
     }
     return 0;
   } catch (error) {
@@ -383,3 +428,4 @@ module.exports = async function runReviewRegressions(browser) {
 };
 
 module.exports.memoryOnlyClearCases = memoryOnlyClearCases;
+module.exports.clockRollbackAfterClearCase = clockRollbackAfterClearCase;

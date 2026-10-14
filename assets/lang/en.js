@@ -21,7 +21,7 @@ window.CONFIG = {
     completedRetention: "Completed responses saved in this browser remain after downloads, with no automatic expiry, until you select Clear app data or Clear saved results and start new. Clearing this site's data in your browser also removes them.",
     completedClearFailed: "Could not confirm that saved results were cleared. Try again or clear this site's data in your browser settings.",
     progressSaveFailed: "Your latest submitted answers are not confirmed saved. Download a session backup before reloading or closing this tab, and try saving again.",
-    clockChanged: "Your device clock moved backward. Your current choice and text are still here, but Next is paused to protect response timing. Correct the device clock, then select Next again. You can download a backup of your previously submitted answers now; keep this tab open until the clock is corrected.",
+    clockChanged: "Your device clock moved backward. Submitted responses and any current choice or text remain in this tab. Correct the device clock, then select Next or Try saving again. You can download a JSON backup of submitted responses now; keep this tab open until the clock is corrected and saving is confirmed.",
     progressConflict: "Another tab changed the saved session. This tab will not replace it. Download a session backup, then reload to resume the saved version.",
     progressStorageUnavailable: "Safe automatic saving is unavailable in this browser. You can continue in this tab. Download a session backup before reloading or closing it.",
     retrySaveBtn: "Try saving again",
