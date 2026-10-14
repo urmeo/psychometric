@@ -7,7 +7,8 @@
   },
   "scripts": {
     "test": "node scripts/run-tests.js",
-    "check:vendor": "node scripts/check-vendor.js"
+    "check:vendor": "node scripts/check-vendor.js",
+    "prepare:site": "node scripts/prepare-site.js"
   },
   "devDependencies": {
     "jspdf": "4.2.1",
