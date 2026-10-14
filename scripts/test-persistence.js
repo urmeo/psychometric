@@ -54,13 +54,20 @@ async function start(page, participant = "persistence fixture") {
   await settled(page);
 }
 
+// Native clicks wait for layout observers, so foreground the participant tab first.
+async function click(page, selector) {
+  await page.bringToFront();
+  await page.locator(selector).click();
+}
+
 async function answer(page, option = 0) {
+  await page.bringToFront();
   await page.waitForFunction(() => {
     const next = document.getElementById("nextBtn");
     return !next.disabled && document.getElementById("option0");
-  });
-  await page.click("#option" + option);
-  await page.click("#nextBtn");
+  }, { polling: 50 });
+  await click(page, "#option" + option);
+  await click(page, "#nextBtn");
   await settled(page);
 }
 
@@ -139,14 +146,21 @@ async function writeFailureCases(context, origin, lang) {
     assert.equal(failure.scoringRejected, true, `${lang}: incomplete backup never becomes a scored result`);
     await page.evaluate(() => window.restoreTestStorage());
     if (mode === "verify-read") {
-      // The write landed, but verification failed. A retry must safely recognize only this tab's attempted value.
-      await page.click("#retrySave");
+      // The write landed. A subsequent denied write must not lose ownership of that read-back revision.
+      await injectWriteFailure(page, "throw");
+      await click(page, "#retrySave");
+      await settled(page);
+      const retryFailure = await status(page);
+      assert.equal(retryFailure.text, retryFailure.expected.progressSaveFailed, `${lang}: retry write denial remains an explicit save failure`);
+      assert.equal(JSON.parse(retryFailure.raw).answers.length, 1, `${lang}: retry write denial preserves this tab's earlier unverified write`);
+      await page.evaluate(() => window.restoreTestStorage());
+      await click(page, "#retrySave");
       await settled(page);
       const retried = await status(page);
       assert.equal(retried.text, retried.expected.progressSaved, `${lang}: retry confirms this tab's previously unverified write`);
       assert.equal(JSON.parse(retried.raw).answers.length, 1);
     } else {
-      await page.click("#retrySave");
+      await click(page, "#retrySave");
       await settled(page);
       const retried = await status(page);
       assert.equal(retried.text, retried.expected.progressSaved, `${lang}: retry confirms recovered persistence`);
@@ -189,7 +203,7 @@ async function backupCases(context, origin, lang, directory) {
   });
   assert.equal(exportFailure.success, false, `${lang}: failed backup download never reports success`);
   assert.ok(exportFailure.alerts.includes(exportFailure.expected), `${lang}: failed backup download offers localized feedback`);
-  await page.click("#downloadBackup");
+  await click(page, "#downloadBackup");
   const download = await waitForDownload(directory, expected.filename);
   const downloadedBackup = JSON.parse(download.bytes.toString("utf8"));
   const expectedBackup = JSON.parse(expected.text);
@@ -205,7 +219,7 @@ async function backupCases(context, origin, lang, directory) {
   const input = await page.$("#restoreBackupInput");
   assert.ok(input, `${lang}: setup offers backup restoration`);
   await input.uploadFile(download.target);
-  await page.waitForFunction(() => window.__TEST__.state.testInProgress);
+  await page.waitForFunction(() => window.__TEST__.state.testInProgress, { polling: 50 });
   await settled(page);
   const restored = await status(page);
   assert.equal(restored.answers.length, 1, `${lang}: backup import restores cursor and answer`);
@@ -233,7 +247,7 @@ async function resumeSameSession(first, second) {
   await first.evaluate(() => window.__TEST__.clearAllData());
   await start(first);
   await second.reload({ waitUntil: "domcontentloaded" });
-  await second.click("#resumeBtn");
+  await click(second, "#resumeBtn");
   await settled(second);
   const baseline = await status(first);
   assert.equal((await status(second)).raw, baseline.raw, "two tabs resume exact same storage revision");
@@ -283,7 +297,7 @@ async function storageEventConflictCase(context, origin, lang) {
   const second = await openPage(context, origin, lang);
   await resumeSameSession(first, second);
   await answer(first, 2);
-  await second.waitForFunction(() => document.getElementById("persistence-status").textContent === window.CONFIG.ui.progressConflict);
+  await second.waitForFunction(() => document.getElementById("persistence-status").textContent === window.CONFIG.ui.progressConflict, { polling: 50 });
   const conflict = await status(second);
   assert.equal(conflict.nextDisabled, true, `${lang}: real storage event pauses a competing tab immediately`);
   assert.equal(conflict.backup.answers.length, 0, `${lang}: real storage conflict preserves local prefix for backup`);
@@ -368,7 +382,7 @@ async function staleStartNewCase(context, origin, lang) {
   const second = await openPage(context, origin, lang, { ignoreStorageEvents: true });
   await answer(first, 1);
   const updated = await status(first);
-  await second.click("#newSessionBtn");
+  await click(second, "#newSessionBtn");
   await settled(second);
   const stale = await second.evaluate(() => ({
     raw: localStorage.getItem(window.CONFIG.storageKey),
@@ -379,7 +393,7 @@ async function staleStartNewCase(context, origin, lang) {
   assert.equal(stale.raw, updated.raw, `${lang}: stale Start New cannot delete a newer revision`);
   assert.equal(stale.text, stale.expected, `${lang}: stale Start New reports competing revision`);
   assert.equal(stale.resumePresent, true, `${lang}: stale Start New retains safe resume action`);
-  await second.click("#resumeBtn");
+  await click(second, "#resumeBtn");
   await settled(second);
   assert.equal((await status(second)).answers.length, 1, `${lang}: stale prompt resumes current revision safely`);
   await first.evaluate(() => window.__TEST__.clearAllData());
@@ -439,7 +453,7 @@ async function completionCases(context, origin, lang) {
   await first.evaluate(() => window.__TEST__.clearAllData());
   await seedNearCompletion(first);
   const second = await openPage(context, origin, lang, { ignoreStorageEvents: true });
-  await second.click("#resumeBtn");
+  await click(second, "#resumeBtn");
   await settled(second);
   await first.evaluate((lockName) => new Promise((resolve) => {
     navigator.locks.request(lockName, () => new Promise((release) => {
@@ -448,8 +462,8 @@ async function completionCases(context, origin, lang) {
     }));
   }), STORAGE_LOCK);
   await second.evaluate(() => { window.newerRevisionSave = window.__TEST__.saveProgress(); });
-  await first.click("#option0");
-  await first.click("#nextBtn");
+  await click(first, "#option0");
+  await click(first, "#nextBtn");
   await first.evaluate(() => window.releaseTestLock());
   await Promise.all([settled(first), settled(second)]);
   const winner = await status(second);
@@ -518,7 +532,8 @@ async function localeIndependenceCase(context, origin) {
   await english.evaluate(() => window.__TEST__.clearAllData());
   const french = await openPage(context, origin, "fr");
   await Promise.all([start(english, "English tab"), start(french, "French tab")]);
-  await Promise.all([answer(english, 0), answer(french, 1)]);
+  await answer(english, 0);
+  await answer(french, 1);
   const en = await status(english), fr = await status(french);
   assert.equal(en.text, en.expected.progressSaved, "English save remains independent of French session");
   assert.equal(fr.text, fr.expected.progressSaved, "French save remains independent of English session");

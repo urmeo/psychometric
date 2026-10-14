@@ -242,6 +242,9 @@
       if (!state.testInProgress || persistenceBlocked) return false;
       var raw = localStorage.getItem(C.storageKey);
       if (!checkStorageSnapshot(raw)) return false;
+      storageSnapshot = raw;
+      attemptedSnapshot = null;
+      progressPersisted = raw !== null;
       var previous = raw === null ? null : JSON.parse(raw);
       snapshot.storageRevision = previous && isInt(previous.storageRevision) ? previous.storageRevision + 1 : 1;
       snapshot.writeId = writerId + ":" + (++writeSequence);
