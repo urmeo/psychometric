@@ -63,14 +63,14 @@
     }
 
     function mockAnswers(testName, scoreValue) {
-      var test = C.tests.filter(function (t) { return t.name === testName; })[0];
+      var test = C.tests.find(function (item) { return item.name === testName; });
       return test.questions.map(function (q, i) {
         return response(testName, q, i, scoreValue);
       });
     }
 
     function mockAnswersPerItem(testName, scores) {
-      var test = C.tests.filter(function (t) { return t.name === testName; })[0];
+      var test = C.tests.find(function (item) { return item.name === testName; });
       return test.questions.map(function (q, i) {
         return response(testName, q, i, scores[i]);
       });
@@ -159,7 +159,7 @@
     assert(getInterp("FQ", "Agoraphobia", 5) === "", "FQ: raw score has no universal severity band");
     assert(getInterp("FQ", "GlobalPhobiaRating", 0) === "", "FQ: no-phobia anchor is not labeled mild");
 
-    var hadsQs = C.tests.filter(function (t) { return t.name === "HADS"; })[0].questions;
+    var hadsQs = C.tests.find(function (test) { return test.name === "HADS"; }).questions;
     state.tests = C.tests.filter(function (t) { return t.name === "HADS"; });
     var built = hadsQs.map(function (q, i) {
       return response("HADS", q, i, i % 4);
@@ -235,13 +235,13 @@
     assert(s.FQ.TotalPhobia === fqAgora.length * 8, "FQ mapping: TotalPhobia includes Agoraphobia items");
 
     if (C.lang === "en") {
-      var bfi = C.tests.filter(function (t) { return t.name === "BFI"; })[0].questions;
+      var bfi = C.tests.find(function (test) { return test.name === "BFI"; }).questions;
       assert(bfi[0].scores[0] === 1, "BFI keying: 'reserved' + strongly agree -> low Extraversion");
       assert(bfi[5].scores[0] === 5, "BFI keying: 'outgoing' + strongly agree -> high Extraversion");
       assert(bfi[3].scores[0] === 1, "BFI keying: 'handles stress well' + strongly agree -> low Neuroticism");
       assert(bfi[8].scores[0] === 5, "BFI keying: 'nervous easily' + strongly agree -> high Neuroticism");
 
-      var staiS = C.tests.filter(function (t) { return t.name === "STAI-S"; })[0].questions;
+      var staiS = C.tests.find(function (test) { return test.name === "STAI-S"; }).questions;
       assert(staiS[0].scores[0] === 4, "STAI-S keying: 'I feel calm' reverse-scored (not at all -> 4)");
       assert(staiS[2].scores[0] === 1, "STAI-S keying: 'I am tense' direct-scored (not at all -> 1)");
     }
@@ -270,7 +270,7 @@
     assert(s.FQ.TotalPhobia === 0, "FQ mapping: TotalPhobia excludes AnxietyDepression items");
 
     function reverseSet(name) {
-      var qs = C.tests.filter(function (t) { return t.name === name; })[0].questions;
+      var qs = C.tests.find(function (test) { return test.name === name; }).questions;
       var out = [];
       qs.forEach(function (q, i) { if (q.scores[0] === 4) out.push(i + 1); });
       return out;
@@ -279,7 +279,7 @@
     var expectedT = C.lang === "fr" ? [1, 3, 6, 7, 10, 13, 14, 16, 19] : [1, 6, 7, 10, 13, 16, 19];
     assert(JSON.stringify(reverseSet("STAI-T")) === JSON.stringify(expectedT), "STAI-T reverse set matches this language's form");
 
-    var staiTQs = C.tests.filter(function (t) { return t.name === "STAI-T"; })[0].questions;
+    var staiTQs = C.tests.find(function (test) { return test.name === "STAI-T"; }).questions;
     var cleanKeying = staiTQs.every(function (q) {
       var k = JSON.stringify(q.scores);
       return k === "[4,3,2,1]" || k === "[1,2,3,4]";

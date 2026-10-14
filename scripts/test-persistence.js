@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const serveApplication = require("./test-server");
+const waitForDownload = require("./test-download");
 
 const STORAGE_LOCK = "psychometric-session-storage";
 
@@ -150,21 +151,6 @@ async function writeFailureCases(context, origin, lang) {
     await page.evaluate(() => window.__TEST__.clearAllData());
     await page.close();
   }
-}
-
-async function waitForDownload(directory, filename) {
-  const target = path.join(directory, filename);
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    try {
-      const bytes = await fs.readFile(target);
-      if (bytes.length) return { bytes, target };
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Download did not finish: ${filename}`);
 }
 
 async function backupCases(context, origin, lang, directory) {

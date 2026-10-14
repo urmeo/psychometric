@@ -1,8 +1,11 @@
 .DS_Store
 node_modules/
+_site/
 .env*
 *.log
 Psychometric_Test_Results*.csv
 Psychometric_Test_Results*.pdf
+Psychometric_Progress_Backup*.json
 Resultats_Psychometriques*.csv
 Resultats_Psychometriques*.pdf
+Sauvegarde_Progression_Psychometrique*.json

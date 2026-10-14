@@ -3,6 +3,7 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const assert = require("node:assert/strict");
+const waitForDownload = require("./test-download");
 
 const TEST_FILES = [
   { file: "tests/test-scoring.html", label: "English" },
@@ -29,21 +30,6 @@ function parseCSV(text) {
   return rows;
 }
 
-async function waitForDownload(directory, filename) {
-  const target = path.join(directory, filename);
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    try {
-      const bytes = await fs.readFile(target);
-      if (bytes.length > 0) return bytes;
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`download did not finish: ${filename}`);
-}
-
 function pdfText(stream) {
   const strings = [];
   for (const match of stream.matchAll(/\(((?:\\.|[^\\()])*)\)\s*Tj/g)) {
@@ -62,7 +48,7 @@ function pdfText(stream) {
 async function verifyActualDownloads(page, directory) {
   const expected = await page.evaluate(() => window.__TEST__.prepareDownloadFixture());
   await page.locator("#downloadCsv").click();
-  const csv = await waitForDownload(directory, expected.filenames.csvFilename);
+  const { bytes: csv } = await waitForDownload(directory, expected.filenames.csvFilename);
   assert.deepEqual([...csv.subarray(0, 3)], [0xEF, 0xBB, 0xBF], "actual CSV has UTF-8 BOM");
   const rows = parseCSV(csv.toString("utf8"));
   const metadata = (label) => rows.find((row) => row[0] === label);
@@ -94,7 +80,7 @@ async function verifyActualDownloads(page, directory) {
   }
 
   await page.locator("#downloadPdf").click();
-  const pdf = await waitForDownload(directory, expected.filenames.pdfFilename);
+  const { bytes: pdf } = await waitForDownload(directory, expected.filenames.pdfFilename);
   assert.equal(pdf.subarray(0, 5).toString("ascii"), "%PDF-", "actual PDF header");
   assert.ok(pdf.toString("latin1").trimEnd().endsWith("%%EOF"), "actual PDF is complete");
   assert.ok(pdf.length > 1000, "actual PDF has content");

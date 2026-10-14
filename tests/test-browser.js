@@ -9,7 +9,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   function savedSession(names, testIndex, questionIndex) {
     var answers = [];
     names.forEach(function (name, index) {
-      var test = C.tests.filter(function (item) { return item.name === name; })[0];
+      var test = C.tests.find(function (item) { return item.name === name; });
       var count = index < testIndex ? test.questions.length : index === testIndex ? questionIndex : 0;
       answers = answers.concat(mockAnswers(name, test.questions[0].scores[0]).slice(0, count));
     });
@@ -59,7 +59,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   T.prepareDownloadFixture = function () {
     fullSession();
     var description = 'cœur, "quotes" and accents\nFull descriptive response.';
-    var firstPhobia = state.answers.filter(function (answer) { return answer.test === "FQ" && answer.questionIndex === 1; })[0];
+    var firstPhobia = state.answers.find(function (answer) { return answer.test === "FQ" && answer.questionIndex === 1; });
     firstPhobia.description = description;
     ["setup-area", "instruction-area", "test-area"].forEach(function (id) { document.getElementById(id).replaceChildren(); });
     document.getElementById("nextBtn").classList.add("hidden");
@@ -157,7 +157,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   assert(localStorage.getItem(C.storageKey) === "{", "malformed save remains unchanged for backup and explicit clearing");
   for (var preservedCase of ["revision", "content signature", "future start"]) {
     var incompatible = clone(valid);
-    invalidCases.filter(function (entry) { return entry[0] === preservedCase; })[0][1](incompatible);
+    invalidCases.find(function (entry) { return entry[0] === preservedCase; })[1](incompatible);
     var incompatibleRaw = JSON.stringify(incompatible);
     await storeLegacySession(incompatibleRaw);
     assert(T.loadProgress() === null, "unavailable draft cannot resume: " + preservedCase);
@@ -394,7 +394,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   assert(document.querySelector(".instrument-notice").textContent === C.testMetadata["STAI-S"].notice, "STAI item screen carries the instrument notice");
 
   fullSession();
-  var descriptive = state.answers.filter(function (answer) { return answer.test === "FQ" && answer.questionIndex === 1; })[0];
+  var descriptive = state.answers.find(function (answer) { return answer.test === "FQ" && answer.questionIndex === 1; });
   descriptive.description = entered;
   var before = T.calculateSummaryScores().FQ;
   descriptive.description += " extra description";
@@ -410,7 +410,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   var csv = T.buildCSV();
   assert(csv.charCodeAt(0) === 0xFEFF, "CSV retains UTF-8 BOM");
   var rows = parseCSV(csv);
-  function metadata(label) { return rows.filter(function (row) { return row[0] === label; })[0]; }
+  function metadata(label) { return rows.find(function (row) { return row[0] === label; }); }
   assert(metadata(C.ui.csvParticipant)[1] === "'" + state.participantId, "CSV guards and quotes formula-looking long ID with CR");
   assert(metadata(C.ui.csvLanguage)[1] === C.lang && metadata(C.ui.csvRevision)[1] === C.revision, "CSV includes locale and revision");
   assert(metadata(C.ui.csvStarted)[1] === state.testStartTime.toISOString() && metadata(C.ui.csvCompleted)[1] === state.testEndTime.toISOString(), "CSV exports frozen assessment timestamps");

@@ -254,10 +254,19 @@
     return authorityTransaction(key, "readwrite", function (record, store) {
       if (!validAuthority(record)) throw coordinationError("Invalid coordination record");
       if (!unconditional) assertAuthority(record, baseline, expectedHash, attemptedHash, clearing);
-      var priorHash = record ? record.pending && !record.pending.clear && (unconditional || expectedHash === record.pending.targetHash) ? record.pending.targetHash : record.rawHash : expectedHash;
+      var priorHash = expectedHash;
+      var nextEpoch = clearEpochSnapshot;
+      if (record) {
+        priorHash = record.rawHash;
+        nextEpoch = record.epoch;
+        if (record.pending && !record.pending.clear && (unconditional || expectedHash === record.pending.targetHash)) {
+          priorHash = record.pending.targetHash;
+        }
+      }
+      if (clearing) nextEpoch = epoch;
       var reserved = {
         key: key, revision: record ? record.revision + 1 : 1,
-        epoch: clearing ? epoch : record ? record.epoch : clearEpochSnapshot,
+        epoch: nextEpoch,
         rawHash: priorHash,
         pending: { token: writerId + ":reservation:" + (++writeSequence), owner: writerId, targetHash: targetHash, clear: !!clearing },
       };
@@ -312,14 +321,14 @@
     if (localStorage.getItem(key) !== epoch) throw new Error("Clear coordination verification failed");
   }
 
-  function canonicalAnswer(answer, test, questionIndex, checkTimes) {
+  function canonicalAnswer(answer, test, questionIndex, validateTimes) {
     if (!isObject(answer) || answer.test !== test.name || answer.questionIndex !== questionIndex) return null;
     var question = test.questions[questionIndex - 1];
     if (!question || !Number.isInteger(answer.optionIndex) || answer.optionIndex < 0 || answer.optionIndex >= question.options.length) return null;
     if (answer.question !== question.q || answer.answer !== question.options[answer.optionIndex] || answer.score !== question.scores[answer.optionIndex]) return null;
     var description = answer.description === undefined ? "" : answer.description;
     if (typeof description !== "string" || (!question.description && description !== "")) return null;
-    if (checkTimes) {
+    if (validateTimes) {
       if (!Number.isFinite(answer.time) || answer.time < 0 || !validDate(answer.questionStartTime) || !validDate(answer.answerTime)) return null;
       var elapsed = (Date.parse(answer.answerTime) - Date.parse(answer.questionStartTime)) / 1000;
       if (elapsed < 0 || Math.abs(elapsed - answer.time) > 0.001) return null;
@@ -392,11 +401,14 @@
   function setPersistenceStatus(key) {
     var area = $("#persistence-area");
     if (!area) return;
-    $("#persistence-status").textContent = ui[key];
-    area.classList.toggle("persistence-warning", key !== "progressSaved" && key !== "completedSaved" && key !== "progressSaving" && key !== "completedSaving");
+    var isSaved = key === "progressSaved" || key === "completedSaved";
+    var isSaving = key === "progressSaving" || key === "completedSaving";
     var hasSession = state.testInProgress || state.testEndTime;
+    var canRetry = hasSession && !persistenceBlocked && (key === "progressSaveFailed" || key === "completedSaveFailed" || key === "clockChanged");
+    $("#persistence-status").textContent = ui[key];
+    area.classList.toggle("persistence-warning", !isSaved && !isSaving);
     $("#downloadBackup").classList.toggle("hidden", !hasSession);
-    $("#retrySave").classList.toggle("hidden", !hasSession || persistenceBlocked || key !== "progressSaveFailed" && key !== "completedSaveFailed" && key !== "clockChanged");
+    $("#retrySave").classList.toggle("hidden", !canRetry);
     show(area);
   }
   function storageOperation(action, explicitClear) {
@@ -409,7 +421,7 @@
         error.storageUnavailable = true;
         throw error;
       }
-      // Writes and automatic deletions share one lock across both language pages.
+      // Session writes and explicit clears share one lock across both language pages.
       return navigator.locks.request("psychometric-session-storage", function () {
         if (generation !== sessionGeneration) return false;
         return action();
@@ -419,12 +431,13 @@
     return task;
   }
   function persistenceFailure(error) {
+    var unavailable = error.storageUnavailable || error.name === "SecurityError" && !window.isSecureContext;
     if (state.testEndTime) {
       completedPersisted = false;
-      setPersistenceStatus(error.storageUnavailable || error.name === "SecurityError" && !window.isSecureContext ? "completedStorageUnavailable" : "completedSaveFailed");
-      return false;
+      setPersistenceStatus(unavailable ? "completedStorageUnavailable" : "completedSaveFailed");
+    } else {
+      setPersistenceStatus(unavailable ? "progressStorageUnavailable" : "progressSaveFailed");
     }
-    setPersistenceStatus(error.storageUnavailable || error.name === "SecurityError" && !window.isSecureContext ? "progressStorageUnavailable" : "progressSaveFailed");
     return false;
   }
   function blockCompetingSession() {
@@ -736,24 +749,24 @@
     return saveProgress();
   }
 
-  function completedAnswers(checkTimes) {
+  function completedAnswers(validateTimes) {
     if (!Array.isArray(state.tests) || !state.tests.length || !Array.isArray(state.answers)) throw new Error(ui.invalidResults);
-    var tests = {};
-    var expected = 0;
+    var testsByName = {};
+    var expectedAnswerCount = 0;
     state.tests.forEach(function (test) {
-      if (!testByName(test.name) || tests[test.name]) throw new Error(ui.invalidResults);
-      tests[test.name] = testByName(test.name);
-      expected += test.questions.length;
+      if (!testByName(test.name) || testsByName[test.name]) throw new Error(ui.invalidResults);
+      testsByName[test.name] = testByName(test.name);
+      expectedAnswerCount += test.questions.length;
     });
-    if (state.answers.length !== expected) throw new Error(ui.invalidResults);
-    var seen = {};
+    if (state.answers.length !== expectedAnswerCount) throw new Error(ui.invalidResults);
+    var seenQuestions = {};
     return state.answers.map(function (answer) {
-      var test = tests[answer && answer.test];
+      var test = testsByName[answer && answer.test];
       if (!test || !Number.isInteger(answer.questionIndex)) throw new Error(ui.invalidResults);
       var key = test.name + ":" + answer.questionIndex;
-      var canonical = canonicalAnswer(answer, test, answer.questionIndex, checkTimes);
-      if (!canonical || seen[key]) throw new Error(ui.invalidResults);
-      seen[key] = true;
+      var canonical = canonicalAnswer(answer, test, answer.questionIndex, validateTimes);
+      if (!canonical || seenQuestions[key]) throw new Error(ui.invalidResults);
+      seenQuestions[key] = true;
       return canonical;
     });
   }
