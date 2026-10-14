@@ -150,7 +150,19 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   localStorage.setItem(C.storageKey, "{");
   assert(T.loadProgress() === null, "malformed JSON cannot resume");
   await T.whenPersistenceSettled();
-  assert(localStorage.getItem(C.storageKey) === null, "malformed save is removed");
+  assert(localStorage.getItem(C.storageKey) === "{", "malformed save remains unchanged for backup and explicit clearing");
+  for (var preservedCase of ["revision", "content signature", "future start"]) {
+    var incompatible = clone(valid);
+    invalidCases.filter(function (entry) { return entry[0] === preservedCase; })[0][1](incompatible);
+    var incompatibleRaw = JSON.stringify(incompatible);
+    localStorage.setItem(C.storageKey, incompatibleRaw);
+    assert(T.loadProgress() === null, "unavailable draft cannot resume: " + preservedCase);
+    await T.whenPersistenceSettled();
+    assert(localStorage.getItem(C.storageKey) === incompatibleRaw, "unavailable draft is preserved exactly: " + preservedCase);
+  }
+  T.showResumeScreen(incompatible);
+  assert(!!document.getElementById("downloadStoredBackup") && !document.getElementById("resumeBtn"), "direct invalid resume offers original-data backup without resuming");
+  assert(localStorage.getItem(C.storageKey) === incompatibleRaw, "direct invalid resume preserves original saved bytes");
 
   state.tests = C.tests.filter(function (test) { return test.name === "HADS"; });
   state.answers = mockAnswers("HADS", 0);

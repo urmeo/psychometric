@@ -36,10 +36,11 @@ STAI: English **Form X-1/X-2**, French **Form Y-1/Y-2**; keys differ. French BFI
 - Choose instrument combinations.
 - Resume saved progress or reopen completed results after reloading, with visible saving, saved, failure and tab-conflict status. Responses are submitted with Next; an option or description still being edited is not saved progress.
 - In-progress and completed sessions remain saved in this browser until explicitly cleared, with no automatic expiry. CSV, PDF and JSON downloads leave the browser copy saved.
-- Completed saves that are incompatible with the current questionnaire configuration remain available for JSON backup and explicit clearing. Reopen them with the matching language and questionnaire configuration to view their results.
+- Saved sessions that cannot be validated remain in the browser unchanged, including unfinished sessions, older questionnaire configurations, timestamps affected by a device clock correction, and damaged JSON. Download their original data before explicitly clearing them. A matching language and questionnaire configuration, or a corrected clock, may allow recovery; damaged data may need repair.
 - Download a JSON session backup during an unfinished or completed session, then restore it from setup using the same language and questionnaire configuration. Restoration validates the session and does not replace an existing browser save; resume it, view its results or explicitly clear that save first.
 - Check for a competing saved revision before writing. A conflicting tab keeps its answers available for backup and stops replacing the browser save.
 - Clear app data ends the session and removes both language saves; a failure to delete or verify deletion is reported. When completed results are found, Clear saved results and start new clears that language's save and returns to setup; the other language's save remains.
+- Clearing also updates a small coordination marker for each affected language, including when no responses could be saved. Other tabs check this marker before writing so an old memory-only session cannot recreate cleared data. These markers contain no participant IDs or responses.
 - CSV/PDF: responses, descriptions, scores, forms, revision, timestamps.
 
 Unsupported PDF characters export intact as UTF-8 CSV.

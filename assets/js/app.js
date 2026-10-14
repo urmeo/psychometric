@@ -7,7 +7,8 @@
   var SESSION_VERSION = 1;
   var sessionGeneration = 0;
   var invalidSavedSession = false;
-  var unavailableCompletedRaw = null;
+  var unavailableSavedRaw = null;
+  var loadedSessionRaw = null;
   var progressPersisted = false;
   var completedPersisted = false;
   var storageSnapshot = null;
@@ -17,6 +18,10 @@
   var writerId = Date.now().toString(36) + Math.random().toString(36).slice(2);
   var writeSequence = 0;
   var latestSaveRequest = 0;
+  var clearSequence = 0;
+  var clearEpochSnapshot;
+  var attemptedClearEpoch = null;
+  var responseClockBlocked = false;
   var state = {
     currentTestIndex: 0,
     currentQuestionIndex: 0,
@@ -66,10 +71,13 @@
     sessionGeneration++;
     progressPersisted = false;
     completedPersisted = false;
-    unavailableCompletedRaw = null;
+    unavailableSavedRaw = null;
+    loadedSessionRaw = null;
     storageSnapshot = null;
     attemptedSnapshot = null;
     persistenceBlocked = false;
+    clearEpochSnapshot = undefined;
+    attemptedClearEpoch = null;
     hide($("#persistence-area"));
     state.currentTestIndex = 0;
     state.currentQuestionIndex = 0;
@@ -82,6 +90,7 @@
     state.testInProgress = false;
     state.participantId = "";
     state.tests = [];
+    captureClearEpoch();
   }
 
   function configSignature() {
@@ -93,6 +102,37 @@
       }),
       scoring: C.scoring,
     });
+  }
+
+  function clearEpochKey(storageKey) { return storageKey + ":clear-epoch"; }
+  function captureClearEpoch() {
+    try { clearEpochSnapshot = localStorage.getItem(clearEpochKey(C.storageKey)); }
+    catch (error) { clearEpochSnapshot = undefined; }
+  }
+  function checkClearEpoch() {
+    var current = localStorage.getItem(clearEpochKey(C.storageKey));
+    if (clearEpochSnapshot === undefined) {
+      var error = new Error("Clear coordination unavailable");
+      error.storageUnavailable = true;
+      throw error;
+    }
+    if (current === clearEpochSnapshot || attemptedClearEpoch !== null && current === attemptedClearEpoch) {
+      clearEpochSnapshot = current;
+      return true;
+    }
+    var currentRaw = localStorage.getItem(C.storageKey);
+    resetState();
+    if (currentRaw === null) showSetupScreen(ui.dataCleared);
+    else showStoredSession();
+    return false;
+  }
+  function nextClearEpoch() { return writerId + ":clear:" + (++clearSequence); }
+  function writeClearEpoch(storageKey, epoch) {
+    epoch = epoch || nextClearEpoch();
+    var key = clearEpochKey(storageKey);
+    localStorage.setItem(key, epoch);
+    if (localStorage.getItem(key) !== epoch) throw new Error("Clear coordination verification failed");
+    return epoch;
   }
 
   function canonicalAnswer(answer, test, questionIndex, checkTimes) {
@@ -121,7 +161,7 @@
     };
   }
 
-  function validateSession(saved) {
+  function validateSession(saved, allowFutureClock) {
     if (!isObject(saved) || saved.version !== SESSION_VERSION || saved.lang !== C.lang || saved.revision !== C.revision || saved.configSignature !== configSignature()) return null;
     var completed = saved.status === "completed";
     if (saved.status !== undefined && saved.status !== "in-progress" && !completed) return null;
@@ -145,8 +185,10 @@
     if (saved.answers.length !== prefix.length) return null;
     var previousTime = Date.parse(saved.testStartTime);
     var now = Date.now();
-    var end = completed ? Date.parse(saved.testEndTime) : now;
-    if (previousTime > now || end < previousTime || end > now) return null;
+    // A trusted in-memory backup may preserve timestamps after a device-clock
+    // correction. Stored records and imports still use the strict wall-clock check.
+    var end = completed ? Date.parse(saved.testEndTime) : allowFutureClock === true ? Infinity : now;
+    if (end < previousTime || allowFutureClock !== true && (previousTime > now || end > now)) return null;
     var answers = [];
     for (var i = 0; i < prefix.length; i++) {
       var answer = canonicalAnswer(saved.answers[i], prefix[i].test, prefix[i].question, true);
@@ -253,9 +295,9 @@
   function saveProgress() {
     if (!(state.testInProgress || state.testEndTime) || persistenceBlocked) return Promise.resolve(false);
     var snapshot = progressSnapshot();
-    if (snapshot.status === "completed" && !validateSession(snapshot)) {
+    if (!validateSession(snapshot)) {
       completedPersisted = false;
-      setPersistenceStatus("completedSaveFailed");
+      setPersistenceStatus(validateSession(snapshot, true) ? "clockChanged" : snapshot.status === "completed" ? "completedSaveFailed" : "progressSaveFailed");
       return Promise.resolve(false);
     }
     var generation = sessionGeneration;
@@ -263,6 +305,12 @@
     setPersistenceStatus(snapshot.status === "completed" ? "completedSaving" : "progressSaving");
     var task = storageOperation(function () {
       if (!(state.testInProgress || state.testEndTime) || persistenceBlocked || state.testEndTime && snapshot.status !== "completed") return false;
+      if (!checkClearEpoch()) return false;
+      if (!validateSession(snapshot)) {
+        var invalidSnapshot = new Error("Session snapshot cannot be recovered");
+        invalidSnapshot.clockChanged = !!validateSession(snapshot, true);
+        throw invalidSnapshot;
+      }
       var raw = localStorage.getItem(C.storageKey);
       if (!checkStorageSnapshot(raw)) return false;
       storageSnapshot = raw;
@@ -289,7 +337,10 @@
       }
       return true;
     }).catch(function (error) {
-      if (generation === sessionGeneration && request === latestSaveRequest) return persistenceFailure(error);
+      if (generation === sessionGeneration && request === latestSaveRequest) {
+        if (error.clockChanged) { completedPersisted = false; setPersistenceStatus("clockChanged"); return false; }
+        return persistenceFailure(error);
+      }
       return false;
     });
     persistenceQueue = task;
@@ -300,8 +351,20 @@
     var expectedRaw = expected;
     var generation = sessionGeneration;
     var task = storageOperation(function () {
+      if (!checkClearEpoch()) return false;
       var raw = localStorage.getItem(C.storageKey);
+      if (raw === null && attemptedClearEpoch !== null && localStorage.getItem(clearEpochKey(C.storageKey)) === attemptedClearEpoch) {
+        storageSnapshot = null;
+        attemptedSnapshot = null;
+        progressPersisted = false;
+        completedPersisted = false;
+        return true;
+      }
       if (raw !== (hasExpected ? expectedRaw : storageSnapshot) && !(attemptedSnapshot !== null && raw === attemptedSnapshot)) return blockCompetingSession();
+      // Remember this exact attempt before verification; a denied read can follow a landed write.
+      attemptedClearEpoch = nextClearEpoch();
+      writeClearEpoch(C.storageKey, attemptedClearEpoch);
+      clearEpochSnapshot = attemptedClearEpoch;
       localStorage.removeItem(C.storageKey);
       if (localStorage.getItem(C.storageKey) !== null) throw new Error("Deletion verification failed");
       storageSnapshot = null;
@@ -318,10 +381,12 @@
   }
   function loadProgress() {
     invalidSavedSession = false;
-    unavailableCompletedRaw = null;
+    unavailableSavedRaw = null;
+    loadedSessionRaw = null;
     var raw;
     try { raw = localStorage.getItem(C.storageKey); }
     catch (error) { return null; }
+    loadedSessionRaw = raw;
     if (raw === null) return null;
     var parsed;
     try {
@@ -330,8 +395,9 @@
       if (saved) return saved;
     } catch (error) { }
     invalidSavedSession = true;
-    if (isObject(parsed) && parsed.status === "completed") unavailableCompletedRaw = raw;
-    else clearProgress(raw);
+    // Validation determines whether a record may resume, never whether it may survive.
+    // An older configuration, a corrected clock, or damaged JSON can still contain responses.
+    unavailableSavedRaw = raw;
     return null;
   }
   function clearAllData() {
@@ -345,6 +411,9 @@
     });
     var task = storageOperation(function () {
       var cleared = true;
+      keys.forEach(function (key) {
+        try { writeClearEpoch(key); } catch (error) { cleared = false; }
+      });
       keys.forEach(function (key) {
         try { localStorage.removeItem(key); } catch (error) { cleared = false; }
       });
@@ -363,7 +432,7 @@
   }
   function buildProgressBackup() {
     if (!(state.testInProgress || state.testEndTime)) throw new Error(ui.invalidBackup);
-    var snapshot = validateSession(progressSnapshot());
+    var snapshot = validateSession(progressSnapshot(), true);
     if (!snapshot) throw new Error(ui.invalidBackup);
     snapshot.backupType = "psychometric-progress";
     snapshot.generatedAt = new Date().toISOString();
@@ -538,8 +607,9 @@
     var requiredUI = [
       "pageTitle", "heading", "startBtn", "nextBtn", "downloadCsvBtn", "downloadPdfBtn",
       "clearDataBtn", "dataCleared", "alertClearDataFail", "consent", "participantLabel", "participantPlaceholder",
-      "progressSaving", "progressSaved", "progressSaveFailed", "progressConflict", "progressStorageUnavailable",
+      "progressSaving", "progressSaved", "progressSaveFailed", "progressConflict", "progressStorageUnavailable", "clockChanged",
       "completedFound", "viewResultsBtn", "clearResultsStartBtn", "completedRetention", "completedClearFailed", "completedUnavailable",
+      "savedUnavailable", "clearSavedStartBtn", "savedRetention", "savedClearFailed",
       "completedSaving", "completedSaved", "completedSaveFailed", "completedStorageUnavailable", "completedConflict",
       "retrySaveBtn", "downloadBackupBtn", "restoreBackupLabel", "backupDownloadFailed",
       "invalidBackup", "backupRestoreConflict", "backupRestored",
@@ -665,14 +735,22 @@
     button.disabled = false;
     show(button);
   }
-  function showResumeScreen(saved) {
+  function showResumeScreen(saved, expectedRaw) {
+    captureClearEpoch();
     var snapshot = validateSession(saved);
-    var promptRaw;
-    try { promptRaw = localStorage.getItem(C.storageKey); } catch (error) { promptRaw = undefined; }
+    var promptRaw = expectedRaw;
+    var promptMatches = true;
+    if (expectedRaw === undefined) {
+      try {
+        promptRaw = localStorage.getItem(C.storageKey);
+        var current = validateSession(JSON.parse(promptRaw));
+        promptMatches = !!current && JSON.stringify(current) === JSON.stringify(snapshot);
+      } catch (error) { promptRaw = undefined; }
+    }
     if (!snapshot) {
       resetState();
-      showSetupScreen(ui.invalidSession);
-      if (promptRaw !== undefined) clearProgress(promptRaw);
+      if (promptRaw !== undefined && promptRaw !== null) showUnavailableSaved(promptRaw);
+      else showSetupScreen(ui.invalidSession);
       return;
     }
     var generation = ++sessionGeneration;
@@ -696,7 +774,8 @@
       catch (error) { setPersistenceStatus("progressSaveFailed"); return; }
       if (!session || session.testStartTime !== snapshot.testStartTime || session.participantId !== snapshot.participantId || JSON.stringify(session.selectedTestNames) !== JSON.stringify(snapshot.selectedTestNames)) {
         resetState();
-        showSetupScreen(raw === null ? ui.dataCleared : ui.invalidSession);
+        if (raw === null) showSetupScreen(ui.dataCleared);
+        else showStoredSession();
         return;
       }
       resumeSession(session, raw);
@@ -704,6 +783,7 @@
     start.addEventListener("click", function () {
       if (generation !== sessionGeneration) return;
       if (promptRaw === undefined) { setPersistenceStatus("progressSaveFailed"); return; }
+      if (!promptMatches) { setPersistenceStatus(completed ? "completedConflict" : "progressConflict"); return; }
       start.disabled = true;
       clearProgress(promptRaw, true).then(function (cleared) {
         if (generation !== sessionGeneration) return;
@@ -715,16 +795,17 @@
       });
     });
   }
-  function showUnavailableCompleted(raw) {
+  function showUnavailableSaved(raw) {
+    captureClearEpoch();
     var generation = ++sessionGeneration;
     var area = $("#setup-area");
     empty(area);
     hide($("#nextBtn"));
     hide($("#persistence-area"));
     var backup = el("button", { id: "downloadStoredBackup", type: "button", className: "btn btn-outline-primary me-2", text: ui.downloadBackupBtn });
-    var start = el("button", { id: "newSessionBtn", type: "button", className: "btn btn-outline-secondary", text: ui.clearResultsStartBtn });
-    area.appendChild(el("p", { role: "status", text: ui.completedUnavailable }));
-    area.appendChild(el("p", { className: "consent-text", text: ui.completedRetention }));
+    var start = el("button", { id: "newSessionBtn", type: "button", className: "btn btn-outline-secondary", text: ui.clearSavedStartBtn });
+    area.appendChild(el("p", { role: "status", text: ui.savedUnavailable }));
+    area.appendChild(el("p", { className: "consent-text", text: ui.savedRetention }));
     area.appendChild(backup);
     area.appendChild(start);
     backup.addEventListener("click", function () {
@@ -748,15 +829,15 @@
         if (cleared) { resetState(); showSetupScreen(); }
         else {
           start.disabled = false;
-          setPersistenceStatus(persistenceBlocked ? "completedConflict" : "completedClearFailed");
+          setPersistenceStatus(persistenceBlocked ? "progressConflict" : "savedClearFailed");
         }
       });
     });
   }
   function showStoredSession() {
     var saved = loadProgress();
-    if (saved) showResumeScreen(saved);
-    else if (unavailableCompletedRaw !== null) showUnavailableCompleted(unavailableCompletedRaw);
+    if (saved) showResumeScreen(saved, loadedSessionRaw);
+    else if (unavailableSavedRaw !== null) showUnavailableSaved(unavailableSavedRaw);
     else showSetupScreen(invalidSavedSession ? ui.invalidSession : "");
   }
   function loadTest(test) {
@@ -766,7 +847,9 @@
     loadQuestion(test.questions[state.currentQuestionIndex]);
   }
   function loadQuestion(question) {
-    state.questionStartTime = new Date();
+    var started = state.testStartTime ? state.testStartTime.getTime() : 0;
+    var previous = state.answers.length ? Date.parse(state.answers[state.answers.length - 1].answerTime) : started;
+    state.questionStartTime = new Date(Math.max(Date.now(), started, previous));
     var area = $("#test-area");
     empty(area);
     var id = "q-text-" + state.currentTestIndex + "-" + state.currentQuestionIndex;
@@ -788,14 +871,26 @@
     updateProgressBar();
     prompt.focus();
   }
+  function responseClockReady(now) {
+    var latest = Math.max(
+      state.testStartTime ? state.testStartTime.getTime() : 0,
+      state.questionStartTime ? state.questionStartTime.getTime() : 0,
+      state.answers.length ? Date.parse(state.answers[state.answers.length - 1].answerTime) : 0,
+      state.testEndTime ? state.testEndTime.getTime() : 0
+    );
+    responseClockBlocked = now < latest;
+    if (responseClockBlocked) setPersistenceStatus("clockChanged");
+    return !responseClockBlocked;
+  }
   function recordAnswer() {
+    var now = new Date();
+    if (!responseClockReady(now.getTime())) return false;
     var selected = $('#test-area input[type="radio"]:checked');
     if (!selected || !/^\d+$/.test(selected.value)) return false;
     var index = Number(selected.value);
     var test = state.tests[state.currentTestIndex];
     var question = test.questions[state.currentQuestionIndex];
     if (!isInt(index) || index >= question.options.length) return false;
-    var now = new Date();
     var description = $("#question-description");
     state.answers.push({
       test: test.name, questionIndex: state.currentQuestionIndex + 1, optionIndex: index,
@@ -1011,6 +1106,7 @@
   function handleNext() {
     var button = $("#nextBtn");
     if (button.disabled) return;
+    if (state.testInProgress && !responseClockReady(Date.now())) return;
     if (state.testInProgress && !storedProgressAvailable()) return;
     button.disabled = true;
     var generation = sessionGeneration;
@@ -1035,7 +1131,7 @@
       saveProgress();
       return;
     }
-    if (!recordAnswer()) { alert(ui.alertAnswer); button.disabled = false; return; }
+    if (!recordAnswer()) { if (!responseClockBlocked) alert(ui.alertAnswer); button.disabled = false; return; }
     if (state.currentQuestionIndex < state.tests[state.currentTestIndex].questions.length - 1) {
       state.currentQuestionIndex++;
       loadQuestion(state.tests[state.currentTestIndex].questions[state.currentQuestionIndex]);
@@ -1045,7 +1141,7 @@
       loadTest(state.tests[state.currentTestIndex]);
     } else {
       state.testInProgress = false;
-      state.testEndTime = new Date();
+      state.testEndTime = new Date(Math.max(Date.now(), Date.parse(state.answers[state.answers.length - 1].answerTime)));
       state.currentQuestionIndex++;
       saveProgress();
       updateProgressBar();
@@ -1118,6 +1214,13 @@
     if (clear) { clear.textContent = ui.clearDataBtn; clear.addEventListener("click", clearAllData); }
     window.addEventListener("storage", function (event) {
       if (event.storageArea && event.storageArea !== localStorage) return;
+      if (event.key === clearEpochKey(C.storageKey)) {
+        if (state.testInProgress || state.testEndTime || $("#resumeBtn") || $("#downloadStoredBackup")) {
+          try { checkClearEpoch(); }
+          catch (error) { if (state.testInProgress || state.testEndTime) persistenceFailure(error); }
+        }
+        return;
+      }
       if (event.key !== C.storageKey && event.key !== null) return;
       var raw;
       try { raw = localStorage.getItem(C.storageKey); }
@@ -1127,6 +1230,12 @@
       }
       // Read current storage so a delayed event cannot invalidate a newer local save.
       if (raw === null && event.newValue === null && (state.testInProgress || $("#resumeBtn") || $("#downloadStoredBackup") || state.testEndTime)) {
+        if (event.key !== null && (state.testInProgress || state.testEndTime) && !progressPersisted && storageSnapshot === null && attemptedSnapshot === null) {
+          // A delayed deletion of an older save cannot delete a new memory-only session.
+          // A real app clear is still detected by its independently stored clear epoch.
+          try { checkClearEpoch(); } catch (error) { persistenceFailure(error); }
+          return;
+        }
         resetState();
         showSetupScreen(ui.dataCleared);
       } else if ((state.testInProgress || state.testEndTime) && raw !== storageSnapshot && raw !== attemptedSnapshot) {
@@ -1134,7 +1243,8 @@
       }
     });
     window.addEventListener("beforeunload", function (event) {
-      if (state.testInProgress || (state.testEndTime && !completedPersisted && !state.resultsExported)) { event.preventDefault(); event.returnValue = ""; }
+      // Requesting a download does not confirm that the browser saved its file.
+      if (state.testInProgress || (state.testEndTime && !completedPersisted)) { event.preventDefault(); event.returnValue = ""; }
     });
   }
   if (window.__TEST__) {

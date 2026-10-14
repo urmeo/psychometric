@@ -699,13 +699,13 @@ async function incompatibleCompletedRecoveryCase(context, origin, lang) {
   const unavailable = await page.evaluate(() => ({
     raw: localStorage.getItem(window.CONFIG.storageKey),
     text: document.getElementById("setup-area").textContent,
-    expected: window.CONFIG.ui.completedUnavailable,
+    expected: window.CONFIG.ui.savedUnavailable,
     active: window.__TEST__.state.testInProgress,
     answers: window.__TEST__.state.answers.length,
     resultVisible: !document.getElementById("results-area").classList.contains("hidden"),
     question: !!document.querySelector("#test-area .question"),
     clearLabel: document.getElementById("newSessionBtn").textContent,
-    expectedClear: window.CONFIG.ui.clearResultsStartBtn,
+    expectedClear: window.CONFIG.ui.clearSavedStartBtn,
   }));
   assert.equal(unavailable.raw, original, `${lang}: incompatible completed record survives reload unchanged`);
   assert.ok(unavailable.text.includes(unavailable.expected), `${lang}: incompatible completed record explains export and explicit clearing`);
@@ -759,6 +759,99 @@ async function incompatibleCompletedRecoveryCase(context, origin, lang) {
   assert.equal(externalClear.setupPresent, true, `${lang}: backup click before storage-event delivery returns to setup after external clear`);
   assert.equal(externalClear.downloads, 0, `${lang}: pre-event and detached incompatible-results backup clicks cannot recover explicitly cleared data`);
   await page.close();
+}
+
+async function unavailableDraftRecoveryCases(context, origin, lang) {
+  for (const variant of ["legacy", "revision", "signature", "clock", "malformed"]) {
+    const page = await openPage(context, origin, lang);
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.evaluate(() => window.__TEST__.clearAllData());
+    await start(page, "retained draft " + variant);
+    await answer(page, 2);
+    const original = await page.evaluate((reason) => {
+      const C = window.CONFIG;
+      const saved = JSON.parse(localStorage.getItem(C.storageKey));
+      if (reason === "legacy") delete saved.version;
+      if (reason === "revision") saved.revision = "older questionnaire revision";
+      if (reason === "signature") saved.configSignature = "older questionnaire content";
+      if (reason === "clock") {
+        // The save was valid before the device clock moved backward on reload.
+        const offset = 3600000;
+        saved.testStartTime = new Date(Date.parse(saved.testStartTime) + offset).toISOString();
+        saved.answers.forEach((answer) => {
+          answer.questionStartTime = new Date(Date.parse(answer.questionStartTime) + offset).toISOString();
+          answer.answerTime = new Date(Date.parse(answer.answerTime) + offset).toISOString();
+        });
+      }
+      const raw = reason === "malformed" ? '\n{"answers":[{"description":"recoverable text"}]' : JSON.stringify(saved, null, 2) + "\n";
+      localStorage.setItem(C.storageKey, raw);
+      return raw;
+    }, variant);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#downloadStoredBackup");
+    await settled(page);
+    const retained = await page.evaluate(() => ({
+      raw: localStorage.getItem(window.CONFIG.storageKey),
+      text: document.getElementById("setup-area").textContent,
+      expected: window.CONFIG.ui.savedUnavailable,
+      clear: document.getElementById("newSessionBtn").textContent,
+      expectedClear: window.CONFIG.ui.clearSavedStartBtn,
+      active: window.__TEST__.state.testInProgress,
+      answers: window.__TEST__.state.answers.length,
+      nextHidden: document.getElementById("nextBtn").classList.contains("hidden"),
+    }));
+    assert.equal(retained.raw, original, `${lang}: ${variant} draft survives reload byte for byte`);
+    assert.ok(retained.text.includes(retained.expected), `${lang}: ${variant} draft explains backup and recovery`);
+    assert.equal(retained.clear, retained.expectedClear, `${lang}: ${variant} draft requires explicitly labelled clearing`);
+    assert.equal(retained.active, false, `${lang}: ${variant} draft is not resumed without validation`);
+    assert.equal(retained.answers, 0, `${lang}: ${variant} draft never enters scoring state`);
+    assert.equal(retained.nextHidden, true, `${lang}: ${variant} draft cannot be replaced by starting from setup`);
+    const downloaded = await page.evaluate(async () => {
+      const originalCreate = URL.createObjectURL;
+      const originalClick = HTMLAnchorElement.prototype.click;
+      let blob;
+      URL.createObjectURL = (value) => { blob = value; return "blob:unavailable-draft-backup"; };
+      HTMLAnchorElement.prototype.click = function () { };
+      try {
+        document.getElementById("downloadStoredBackup").click();
+        return blob && await blob.text();
+      } finally {
+        URL.createObjectURL = originalCreate;
+        HTMLAnchorElement.prototype.click = originalClick;
+      }
+    });
+    assert.equal(downloaded, original, `${lang}: ${variant} backup preserves original bytes including malformed JSON`);
+    assert.equal((await status(page)).raw, original, `${lang}: ${variant} backup leaves original browser save retained`);
+    const denied = await page.evaluate(async () => {
+      const originalRemove = Storage.prototype.removeItem;
+      Storage.prototype.removeItem = function (key) {
+        if (this === localStorage && key === window.CONFIG.storageKey) return;
+        return originalRemove.apply(this, arguments);
+      };
+      try {
+        document.getElementById("newSessionBtn").click();
+        await window.__TEST__.whenPersistenceSettled();
+        return {
+          raw: localStorage.getItem(window.CONFIG.storageKey),
+          text: document.getElementById("persistence-status").textContent,
+          expected: window.CONFIG.ui.savedClearFailed,
+          backupPresent: !!document.getElementById("downloadStoredBackup"),
+        };
+      } finally { Storage.prototype.removeItem = originalRemove; }
+    });
+    assert.equal(denied.raw, original, `${lang}: ${variant} failed clear preserves original recovery data`);
+    assert.equal(denied.text, denied.expected, `${lang}: ${variant} silent clear failure is reported`);
+    assert.equal(denied.backupPresent, true, `${lang}: ${variant} failed clear keeps backup available`);
+    const otherKey = lang === "en" ? "psychometric_progress_fr" : "psychometric_progress_en";
+    await page.evaluate((key) => localStorage.setItem(key, "other language save"), otherKey);
+    await click(page, "#newSessionBtn");
+    await settled(page);
+    assert.equal((await status(page)).raw, null, `${lang}: ${variant} explicit clear removes original save`);
+    assert.equal(await page.evaluate((key) => localStorage.getItem(key), otherKey), "other language save", `${lang}: ${variant} explicit clear preserves other language`);
+    assert.ok(await page.$("#participantIdInput"), `${lang}: ${variant} explicit clear returns to setup`);
+    await page.evaluate(() => window.__TEST__.clearAllData());
+    await page.close();
+  }
 }
 
 async function failedFirstSaveCase(context, origin, lang) {
@@ -850,6 +943,7 @@ module.exports = async function runPersistenceTests(browser) {
       await staleCompletedClearCase(context, origin, lang);
       await completedClearFailureCase(context, origin, lang);
       await incompatibleCompletedRecoveryCase(context, origin, lang);
+      await unavailableDraftRecoveryCases(context, origin, lang);
       await missingLocksCase(browser, origin, lang);
       console.log(`  ${lang}: verified save failures/recovery, concurrent tabs, completed-result reopening/retention/clearing, actual CSV/PDF/JSON recovery exports, backup import, and memory-only fallback.`);
     }
