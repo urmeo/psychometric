@@ -56,6 +56,72 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
     if (field || row.length) { row.push(field); rows.push(row); }
     return rows;
   }
+  function csvSnapshot() {
+    return JSON.stringify(parseCSV(T.buildCSV()).filter(function (row) { return row[0] !== C.ui.csvGenerated; }));
+  }
+  function resultsCharts(expectedRows) {
+    var chartRows = document.querySelectorAll("#results-area .chart-row");
+    var tableRows = document.querySelectorAll("#results-area .results-table tbody tr");
+    assert(chartRows.length === expectedRows.length && tableRows.length === expectedRows.length, "results contain one chart and table row per score");
+    expectedRows.forEach(function (expected) {
+      var chart = document.querySelector('#results-area .chart-row[data-test="' + expected.test + '"][data-subscale="' + expected.key + '"]');
+      var label = expected.key === "Total" ? C.ui.totalLabel : C.subscaleLabels[expected.key];
+      var score = Number.isInteger(expected.score) ? String(expected.score) : expected.score.toFixed(2);
+      var tableRow = Array.prototype.find.call(tableRows, function (row) { return row.cells[0].textContent === expected.test && row.cells[1].textContent === label; });
+      assert(!!chart && Number(chart.dataset.score) === expected.score && Number(chart.dataset.min) === expected.min && Number(chart.dataset.max) === expected.max && chart.querySelector(".chart-value").textContent === score && !!tableRow && tableRow.cells.length === 5 && tableRow.cells[2].textContent === score && tableRow.cells[3].textContent === expected.min + "-" + expected.max, "chart and table preserve score and range: " + expected.test + " / " + expected.key);
+      if (!chart) return;
+      var svg = chart.querySelector(".score-chart");
+      var fill = chart.querySelector(".chart-fill");
+      var marker = chart.querySelector(".chart-marker");
+      var width = (expected.score - expected.min) / (expected.max - expected.min) * 480;
+      var axis = chart.querySelector(".chart-axis");
+      assert(!!fill && !!marker && Number(fill.getAttribute("x")) === 40 && Math.abs(Number(fill.getAttribute("width")) - width) < 0.001 && Math.abs(Number(marker.getAttribute("cx")) - 40 - width) < 0.001 && !!axis && axis.firstElementChild.textContent === String(expected.min) && axis.lastElementChild.textContent === String(expected.max), "chart uses its actual scale bounds: " + expected.test + " / " + expected.key);
+      var accessibleValue = C.ui.resultsChartValue.replace("{score}", score).replace("{min}", String(expected.min)).replace("{max}", String(expected.max));
+      assert(!!svg && svg.getAttribute("role") === "img" && String(svg.getAttribute("aria-label")).includes(expected.test + ", " + label + ". " + accessibleValue), "chart has a localized score and range label: " + expected.test + " / " + expected.key);
+    });
+  }
+  function resultsBoundaries(summary) {
+    var originalTests = state.tests;
+    var originalAnswers = state.answers;
+    var originalParticipant = state.participantId;
+    try {
+      ["min", "max"].forEach(function (bound) {
+        var values = bound === "min" ? { HADS: 0, "STAI-S": 1, "STAI-T": 1, BFI: 1, FQ: 0 } : { HADS: 3, "STAI-S": 4, "STAI-T": 4, BFI: 5, FQ: 8 };
+        state.answers = [].concat.apply([], state.tests.map(function (test) { return mockAnswers(test.name, values[test.name]); }));
+        T.displayResults(T.calculateSummaryScores());
+        var charts = document.querySelectorAll("#results-area .chart-row");
+        assert(charts.length === 16 && Array.prototype.every.call(charts, function (chart) {
+          var marker = chart.querySelector(".chart-marker");
+          var svg = chart.querySelector(".score-chart");
+          var position = bound === "min" ? 40 : 520;
+          var radius = Number(marker.getAttribute("r"));
+          var viewBox = svg.viewBox.baseVal;
+          return Number(chart.dataset.score) === Number(chart.dataset[bound]) && Number(marker.getAttribute("cx")) === position && Number(chart.querySelector(".chart-fill").getAttribute("width")) === (bound === "min" ? 0 : 480) && position - radius >= viewBox.x && position + radius <= viewBox.x + viewBox.width;
+        }), "all score markers remain visible at the " + bound + "imum endpoint");
+      });
+      state.tests = C.tests.filter(function (test) { return test.name === "STAI-S" || test.name === "BFI"; });
+      state.answers = mockAnswers("STAI-S", 2).concat(mockAnswers("BFI", 3));
+      var changed = state.answers.find(function (answer) { return answer.test === "BFI" && answer.questionIndex === 5; });
+      var question = state.tests[1].questions[4];
+      changed.score = 4;
+      changed.optionIndex = question.scores.indexOf(4);
+      changed.answer = question.options[changed.optionIndex];
+      T.displayResults(T.calculateSummaryScores());
+      var names = Array.prototype.map.call(document.querySelectorAll("#results-area .result-card"), function (card) { return card.dataset.test; });
+      assert(JSON.stringify(names) === '["STAI-S","BFI"]' && document.querySelectorAll("#results-area .chart-row").length === 6 && document.querySelectorAll("#results-area .results-table tbody tr").length === 6, "results show only the selected questionnaires and scores");
+      resultsCharts([{ test: "BFI", key: "Openness", score: 3.5, min: 1, max: 5 }].concat(["Conscientiousness", "Extraversion", "Agreeableness", "Neuroticism"].map(function (key) { return { test: "BFI", key: key, score: 3, min: 1, max: 5 }; }), [{ test: "STAI-S", key: "Total", score: 40, min: 20, max: 80 }]));
+      var midpoints = document.querySelectorAll("#results-area .chart-midpoint");
+      assert(midpoints.length === 5 && Array.prototype.every.call(midpoints, function (marker) { return Number(marker.getAttribute("x1")) === 280 && Number(marker.getAttribute("x2")) === 280 && marker.closest(".chart-row").dataset.test === "BFI"; }), "only BFI charts mark the scale midpoint at 3");
+      state.participantId = '<img src=x onerror="window.__resultInjection=true">';
+      T.displayResults(T.calculateSummaryScores());
+      assert(document.querySelector("#results-area .participant-id").textContent === C.ui.participantLabel2 + " " + state.participantId && !document.querySelector("#results-area img") && !window.__resultInjection, "results render participant text literally");
+    } finally {
+      state.tests = originalTests;
+      state.answers = originalAnswers;
+      state.participantId = originalParticipant;
+      T.displayResults(summary);
+    }
+  }
   T.prepareDownloadFixture = function () {
     fullSession();
     var description = 'cœur, "quotes" and accents\nFull descriptive response.';
@@ -201,6 +267,7 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
     ["malformed threshold", function (config) { config.thresholds.HADS.Anxiety.ranges[0] = null; }],
     ["unknown threshold subscale", function (config) { config.thresholds.HADS.Typo = { ranges: [[0, 7, "range"]] }; }],
     ["missing UI label", function (config) { delete config.ui.colRange; }],
+    ["missing chart accessibility label", function (config) { delete config.ui.resultsChartValue; }],
     ["missing Clear Data failure message", function (config) { delete config.ui.alertClearDataFail; }],
     ["misaligned CSV columns", function (config) { config.ui.csvHeaders = "only,two"; }],
     ["missing export filename", function (config) { delete config.export.csvFilename; }],
@@ -400,12 +467,37 @@ async function browserRegressions(C, T, state, mockAnswers, assert, assertThrows
   descriptive.description += " extra description";
   assert(JSON.stringify(T.calculateSummaryScores().FQ) === JSON.stringify(before), "free text does not alter FQ normative scores");
   descriptive.description = entered;
-  T.displayResults(T.calculateSummaryScores());
-  var summaryCells = Array.prototype.map.call(document.querySelectorAll("#results-area tbody tr"), function (row) { return Array.prototype.map.call(row.cells, function (cell) { return cell.textContent; }); });
+  var visualSummary = T.calculateSummaryScores();
+  var scoreSnapshot = JSON.stringify(visualSummary);
+  var stateSnapshot = JSON.stringify(state);
+  var configSnapshot = JSON.stringify(C);
+  var exportSnapshot = csvSnapshot();
+  T.displayResults(visualSummary);
+  var expectedCharts = [
+    ["HADS", "Anxiety", 21, 0, 21], ["HADS", "Depression", 21, 0, 21],
+    ["STAI-S", "Total", 80, 20, 80], ["STAI-T", "Total", 80, 20, 80],
+    ["BFI", "Openness", 1, 1, 5], ["BFI", "Conscientiousness", 1, 1, 5],
+    ["BFI", "Extraversion", 1, 1, 5], ["BFI", "Agreeableness", 1, 1, 5], ["BFI", "Neuroticism", 1, 1, 5],
+    ["FQ", "MainPhobia", 0, 0, 8], ["FQ", "TotalPhobia", 0, 0, 120],
+    ["FQ", "Agoraphobia", 0, 0, 40], ["FQ", "BloodInjuryPhobia", 0, 0, 40], ["FQ", "SocialPhobia", 0, 0, 40],
+    ["FQ", "GlobalPhobiaRating", 0, 0, 8], ["FQ", "AnxietyDepression", 0, 0, 40],
+  ].map(function (row) { return { test: row[0], key: row[1], score: row[2], min: row[3], max: row[4] }; });
+  resultsCharts(expectedCharts);
+  assert(document.querySelectorAll("#results-area .result-card").length === 5, "results group all five questionnaires into separate cards");
+  var resultLabels = Array.prototype.map.call(document.querySelectorAll("#results-area .results-meta dt"), function (term) { return term.textContent; });
+  var resultCounts = Array.prototype.map.call(document.querySelectorAll("#results-area .results-meta dd"), function (value) { return value.textContent; });
+  assert(JSON.stringify(resultLabels) === JSON.stringify([C.ui.resultsQuestionnaires, C.ui.resultsResponses, C.ui.resultsDuration]) && JSON.stringify(resultCounts) === JSON.stringify(["5", "88", "1.5 " + C.ui.minutes]), "results summarize questionnaire count, submitted responses and frozen duration in this language");
+  var summaryCells = Array.prototype.map.call(document.querySelectorAll("#results-area .results-table tbody tr"), function (row) { return Array.prototype.map.call(row.cells, function (cell) { return cell.textContent; }); });
   assert(summaryCells.some(function (cells) { return cells[0] === "BFI" && cells[1] === C.subscaleLabels.Openness; }), "results use localized subscale labels");
   assert(summaryCells.some(function (cells) { return cells[0] === "STAI-S" && cells[3] === "20-80" && cells[4] === C.ui.rawScoreLabel; }), "results show STAI range and raw-score qualifier");
-  assert(Array.prototype.every.call(document.querySelectorAll("#results-area tbody tr"), function (row) { return row.cells[0].textContent === "HADS" || !/interp-/.test(row.cells[4].className); }), "clinical color is confined to HADS screening results");
-  assert(document.querySelectorAll("#results-area th").length === 5, "result table has aligned score/range/interpretation columns");
+  assert(Array.prototype.every.call(document.querySelectorAll("#results-area .results-table tbody tr"), function (row) {
+    var badge = row.cells[4].querySelector('[class^="interp-"]');
+    return row.cells[0].textContent === "HADS" ? !!badge : !badge;
+  }), "clinical color is confined to HADS screening results");
+  assert(document.querySelectorAll('#results-area .results-table thead th[scope="col"]').length === 5 && document.querySelectorAll('#results-area .results-table tbody th[scope="row"]').length === 16, "result table identifies all score columns and row labels accessibly");
+  assert(JSON.stringify(T.calculateSummaryScores()) === scoreSnapshot && JSON.stringify(visualSummary) === scoreSnapshot && JSON.stringify(state) === stateSnapshot && JSON.stringify(C) === configSnapshot && csvSnapshot() === exportSnapshot, "rendering charts and table leaves scoring, state, configuration and exported data unchanged");
+  resultsBoundaries(visualSummary);
+  assert(JSON.stringify(state) === stateSnapshot && csvSnapshot() === exportSnapshot, "boundary and subset displays restore the original completed session and export");
 
   var csv = T.buildCSV();
   assert(csv.charCodeAt(0) === 0xFEFF, "CSV retains UTF-8 BOM");
