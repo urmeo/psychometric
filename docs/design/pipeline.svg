@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1160" viewBox="0 0 1600 1160" role="img" aria-labelledby="title description">
+  <title id="title">Psychometric project pipeline</title>
+  <desc id="description">Three connected project concerns: choose a language and questionnaires, submit answers, calculate scores, review charts and tables, and download reports or a JSON backup. Autosave separately verifies browser writes and revisions; failures or conflicts leave responses in the tab for backup. Saved or imported sessions are validated before resuming or reopening results. Figma is a manual design reference. Repository changes run installation, vendor checks, browser tests and a dependency audit on Node.js 22 and 24. Both jobs must pass before main is packaged and deployed to GitHub Pages.</desc>
+  <rect width="1600" height="1160" fill="#10171b"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="48" y="57" font-size="32" font-weight="700" fill="#edf4f6">PSYCHOMETRIC / PROJECT PIPELINE</text>
+    <text x="48" y="94" font-size="20" font-weight="400" fill="#b0c2cb">English + French  ·  Five questionnaires  ·  88 items when all are selected</text>
+    <polyline points="48,130 88,130" fill="none" stroke="#55c5df" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="88,130 77,125 77,135" fill="#55c5df"/>
+    <text x="102" y="136" font-size="18" font-weight="400" fill="#b0c2cb">Participant flow</text>
+    <polyline points="344,130 384,130" fill="none" stroke="#96d6b7" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="384,130 373,125 373,135" fill="#96d6b7"/>
+    <text x="398" y="136" font-size="18" font-weight="400" fill="#b0c2cb">Saving and recovery</text>
+    <polyline points="706,130 746,130" fill="none" stroke="#f2ad8e" stroke-width="3" stroke-linejoin="round" stroke-dasharray="7 6"/>
+    <polygon points="746,130 735,125 735,135" fill="#f2ad8e"/>
+    <text x="760" y="136" font-size="18" font-weight="400" fill="#b0c2cb">Save problem</text>
+    <polyline points="1004,130 1044,130" fill="none" stroke="#a5bac8" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="1044,130 1033,125 1033,135" fill="#a5bac8"/>
+    <text x="1058" y="136" font-size="18" font-weight="400" fill="#b0c2cb">Design and delivery</text>
+    <rect x="24" y="166" width="1552" height="250" rx="12" fill="#151e23" stroke="#2d404a"/>
+    <text x="48" y="197" font-size="17" font-weight="700" fill="#55c5df">01  USE THE APP — response processing stays in this browser</text>
+    <polyline points="312,302 354,302" fill="none" stroke="#55c5df" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="354,302 343,297 343,307" fill="#55c5df"/>
+    <polyline points="622,302 664,302" fill="none" stroke="#55c5df" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="664,302 653,297 653,307" fill="#55c5df"/>
+    <polyline points="932,302 974,302" fill="none" stroke="#55c5df" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="974,302 963,297 963,307" fill="#55c5df"/>
+    <polyline points="1242,302 1284,302" fill="none" stroke="#55c5df" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="1284,302 1273,297 1273,307" fill="#55c5df"/>
+    <g id="choose" data-card="choose">
+      <rect x="48" y="210" width="264" height="184" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+    <text x="68" y="247" font-size="22" font-weight="700" fill="#edf4f6">Choose</text>
+    <text x="68" y="282" font-size="18" font-weight="400" fill="#b0c2cb">English or French</text>
+    <text x="68" y="309" font-size="18" font-weight="400" fill="#b0c2cb">One or more questionnaires</text>
+    <text x="68" y="336" font-size="18" font-weight="400" fill="#b0c2cb">88 items if all are selected</text>
+    </g>
+    <g id="submit" data-card="submit">
+      <rect x="358" y="210" width="264" height="184" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+    <text x="378" y="247" font-size="22" font-weight="700" fill="#edf4f6">Submit answers</text>
+    <text x="378" y="282" font-size="18" font-weight="400" fill="#b0c2cb">Next records each answer</text>
+    <text x="378" y="309" font-size="18" font-weight="400" fill="#b0c2cb">Optional FQ descriptions</text>
+    <text x="378" y="336" font-size="18" font-weight="400" fill="#b0c2cb">Edits before Next</text>
+    <text x="378" y="363" font-size="18" font-weight="400" fill="#b0c2cb">stay in this tab</text>
+    </g>
+    <g id="score" data-card="score">
+      <rect x="668" y="210" width="264" height="184" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+    <text x="688" y="247" font-size="22" font-weight="700" fill="#edf4f6">Calculate</text>
+    <text x="688" y="282" font-size="18" font-weight="400" fill="#b0c2cb">After the final answer</text>
+    <text x="688" y="309" font-size="18" font-weight="400" fill="#b0c2cb">Validate all selected items</text>
+    <text x="688" y="336" font-size="18" font-weight="400" fill="#b0c2cb">Apply keyed scoring</text>
+    </g>
+    <g id="review" data-card="review">
+      <rect x="978" y="210" width="264" height="184" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+    <text x="998" y="247" font-size="22" font-weight="700" fill="#edf4f6">Review</text>
+    <text x="998" y="282" font-size="18" font-weight="400" fill="#b0c2cb">Charts + exact score table</text>
+    <text x="998" y="309" font-size="18" font-weight="400" fill="#b0c2cb">Each score keeps its range</text>
+    <text x="998" y="336" font-size="18" font-weight="400" fill="#b0c2cb">No diagnosis or percentiles</text>
+    </g>
+    <g id="download" data-card="download">
+      <rect x="1288" y="210" width="264" height="184" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+    <text x="1308" y="247" font-size="22" font-weight="700" fill="#edf4f6">Keep a copy</text>
+    <text x="1308" y="282" font-size="18" font-weight="400" fill="#b0c2cb">CSV / PDF reports</text>
+    <text x="1308" y="309" font-size="18" font-weight="400" fill="#b0c2cb">JSON backup at any stage</text>
+    <text x="1308" y="336" font-size="18" font-weight="400" fill="#b0c2cb">Browser save stays intact</text>
+    </g>
+    <rect x="24" y="470" width="1552" height="358" rx="12" fill="#151e23" stroke="#2d404a"/>
+    <text x="48" y="501" font-size="17" font-weight="700" fill="#96d6b7">02  SAVE AND RECOVER — independent of scoring</text>
+    <polyline points="490,394 490,516" fill="none" stroke="#96d6b7" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="490,516 495,505 485,505" fill="#96d6b7"/>
+    <text x="510" y="451" font-size="18" font-weight="400" fill="#96d6b7">after Start / each Next</text>
+    <polyline points="1420,394 1420,516" fill="none" stroke="#96d6b7" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="1420,516 1425,505 1415,505" fill="#96d6b7"/>
+    <text x="1438" y="451" font-size="18" font-weight="400" fill="#96d6b7">JSON import</text>
+    <polyline points="358,607 316,607" fill="none" stroke="#f2ad8e" stroke-width="3" stroke-linejoin="round" stroke-dasharray="7 6"/>
+    <polygon points="316,607 327,612 327,602" fill="#f2ad8e"/>
+    <polyline points="772,607 818,607" fill="none" stroke="#96d6b7" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="818,607 807,602 807,612" fill="#96d6b7"/>
+    <polyline points="1166,607 1212,607" fill="none" stroke="#96d6b7" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="1212,607 1201,602 1201,612" fill="#96d6b7"/>
+    <g id="save-problem" data-card="save-problem">
+      <rect x="48" y="520" width="264" height="184" rx="10" fill="#1b272e" stroke="#f2ad8e" stroke-width="2" stroke-dasharray="7 6"/>
+    <text x="68" y="557" font-size="22" font-weight="700" fill="#edf4f6">Save problem</text>
+    <text x="68" y="592" font-size="18" font-weight="400" fill="#b0c2cb">Failure or tab conflict</text>
+    <text x="68" y="619" font-size="18" font-weight="400" fill="#b0c2cb">Keep this tab open</text>
+    <text x="68" y="646" font-size="18" font-weight="400" fill="#b0c2cb">Download JSON backup</text>
+    <text x="68" y="673" font-size="18" font-weight="400" fill="#b0c2cb">Conflicts do not overwrite</text>
+    </g>
+    <g id="verify-save" data-card="verify-save">
+      <rect x="358" y="520" width="414" height="184" rx="10" fill="#1b272e" stroke="#96d6b7" stroke-width="2"/>
+    <text x="378" y="557" font-size="22" font-weight="700" fill="#edf4f6">Verify autosave</text>
+    <text x="378" y="592" font-size="18" font-weight="400" fill="#b0c2cb">Shared lock + revision check</text>
+    <text x="378" y="619" font-size="18" font-weight="400" fill="#b0c2cb">Write responses to localStorage</text>
+    <text x="378" y="646" font-size="18" font-weight="400" fill="#b0c2cb">Read back + commit IndexedDB</text>
+    </g>
+    <g id="browser-session" data-card="browser-session">
+      <rect x="822" y="520" width="344" height="184" rx="10" fill="#1b272e" stroke="#96d6b7" stroke-width="2"/>
+    <text x="842" y="557" font-size="22" font-weight="700" fill="#edf4f6">Browser session</text>
+    <text x="842" y="592" font-size="18" font-weight="400" fill="#b0c2cb">One save per language</text>
+    <text x="842" y="619" font-size="18" font-weight="400" fill="#b0c2cb">Unfinished or completed</text>
+    <text x="842" y="646" font-size="18" font-weight="400" fill="#b0c2cb">No automatic expiry</text>
+    </g>
+    <g id="restore" data-card="restore">
+      <rect x="1216" y="520" width="336" height="184" rx="10" fill="#1b272e" stroke="#96d6b7" stroke-width="2"/>
+    <text x="1236" y="557" font-size="22" font-weight="700" fill="#edf4f6">Resume or restore</text>
+    <text x="1236" y="592" font-size="18" font-weight="400" fill="#b0c2cb">Reload or import JSON</text>
+    <text x="1236" y="619" font-size="18" font-weight="400" fill="#b0c2cb">Check language + configuration</text>
+    <text x="1236" y="646" font-size="18" font-weight="400" fill="#b0c2cb">Resume / reopen results</text>
+    </g>
+    <text x="48" y="742" font-size="18" font-weight="400" fill="#b0c2cb">A saved status confirms the write and coordination commit. A failed save does not prevent in-tab results.</text>
+    <text x="48" y="773" font-size="18" font-weight="400" fill="#b0c2cb">JSON restores sessions; CSV/PDF are reports. An import cannot replace an existing browser save.</text>
+    <text x="48" y="804" font-size="18" font-weight="400" fill="#b0c2cb">Clear controls remove responses, not downloaded files. Browsers can also clear their storage independently.</text>
+    <rect x="24" y="856" width="1552" height="250" rx="12" fill="#151e23" stroke="#2d404a"/>
+    <text x="48" y="887" font-size="17" font-weight="700" fill="#a5bac8">03  DESIGN AND DELIVERY — verify before publishing</text>
+    <polyline points="312,992 354,992" fill="none" stroke="#a5bac8" stroke-width="3" stroke-linejoin="round" stroke-dasharray="7 6"/>
+    <polygon points="354,992 343,987 343,997" fill="#a5bac8"/>
+    <polyline points="622,992 664,992" fill="none" stroke="#a5bac8" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="664,992 653,987 653,997" fill="#a5bac8"/>
+    <polyline points="932,992 974,992" fill="none" stroke="#a5bac8" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="974,992 963,987 963,997" fill="#a5bac8"/>
+    <polyline points="1242,992 1284,992" fill="none" stroke="#a5bac8" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="1284,992 1273,987 1273,997" fill="#a5bac8"/>
+    <g id="figma" data-card="figma">
+      <rect x="48" y="900" width="264" height="184" rx="10" fill="#1b272e" stroke="#a5bac8" stroke-width="2"/>
+    <text x="68" y="937" font-size="22" font-weight="700" fill="#edf4f6">Figma reference</text>
+    <text x="68" y="972" font-size="18" font-weight="400" fill="#b0c2cb">Editable project diagram</text>
+    <text x="68" y="999" font-size="18" font-weight="400" fill="#b0c2cb">Manual design changes</text>
+    </g>
+    <g id="repository" data-card="repository">
+      <rect x="358" y="900" width="264" height="184" rx="10" fill="#1b272e" stroke="#a5bac8" stroke-width="2"/>
+    <text x="378" y="937" font-size="22" font-weight="700" fill="#edf4f6">Repository</text>
+    <text x="378" y="972" font-size="18" font-weight="400" fill="#b0c2cb">HTML · CSS · JavaScript</text>
+    <text x="378" y="999" font-size="18" font-weight="400" fill="#b0c2cb">Pull request / main</text>
+    <text x="378" y="1026" font-size="18" font-weight="400" fill="#b0c2cb">or a manual workflow run</text>
+    </g>
+    <g id="verify" data-card="verify">
+      <rect x="668" y="900" width="264" height="184" rx="10" fill="#1b272e" stroke="#a5bac8" stroke-width="2"/>
+    <text x="688" y="937" font-size="22" font-weight="700" fill="#edf4f6">Verify</text>
+    <text x="688" y="972" font-size="18" font-weight="400" fill="#b0c2cb">Node.js 22 + 24</text>
+    <text x="688" y="999" font-size="18" font-weight="400" fill="#b0c2cb">Install + vendor check</text>
+    <text x="688" y="1026" font-size="18" font-weight="400" fill="#b0c2cb">Browser tests + audit</text>
+    </g>
+    <g id="prepare" data-card="prepare">
+      <rect x="978" y="900" width="264" height="184" rx="10" fill="#1b272e" stroke="#a5bac8" stroke-width="2"/>
+    <text x="998" y="937" font-size="22" font-weight="700" fill="#edf4f6">Prepare site</text>
+    <text x="998" y="972" font-size="18" font-weight="400" fill="#b0c2cb">Both jobs pass · main only</text>
+    <text x="998" y="999" font-size="18" font-weight="400" fill="#b0c2cb">Runtime pages + assets</text>
+    <text x="998" y="1026" font-size="18" font-weight="400" fill="#b0c2cb">License + instrument notices</text>
+    </g>
+    <g id="publish" data-card="publish">
+      <rect x="1288" y="900" width="264" height="184" rx="10" fill="#1b272e" stroke="#a5bac8" stroke-width="2"/>
+    <text x="1308" y="937" font-size="22" font-weight="700" fill="#edf4f6">Publish</text>
+    <text x="1308" y="972" font-size="18" font-weight="400" fill="#b0c2cb">Upload Pages artifact</text>
+    <text x="1308" y="999" font-size="18" font-weight="400" fill="#b0c2cb">Deploy GitHub Pages</text>
+    <text x="1308" y="1026" font-size="18" font-weight="400" fill="#b0c2cb">Open the bilingual app</text>
+    </g>
+    <text x="48" y="1140" font-size="18" font-weight="400" fill="#b0c2cb">Figma is a design reference. Running the app requires no Figma, npm installation or build server.</text>
+  </g>
+</svg>

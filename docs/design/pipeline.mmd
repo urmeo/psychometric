@@ -1,0 +1,34 @@
+flowchart TB
+  subgraph APP["USE THE APP — all response processing stays in the browser"]
+    direction LR
+    A["Choose<br/>English or French<br/>One or more questionnaires"] --> B["Submit answers<br/>Next records each response<br/>Optional FQ descriptions"]
+    B --> C["Calculate on completion<br/>Validate the complete answer set<br/>Apply the language's scoring keys"]
+    C --> D["Review results<br/>Charts and exact score table<br/>Each score keeps its own range"]
+    D --> E["Keep a copy<br/>CSV / PDF reports<br/>JSON backup at any stage"]
+  end
+  subgraph RECOVERY["SAVE AND RECOVER — separate from scoring"]
+    direction LR
+    S["Verify autosave<br/>Shared lock and revision check<br/>Write, read back, confirm"] --> V["Browser session<br/>One save per language<br/>No automatic expiry"]
+    V --> R["Resume or restore<br/>Reload or import JSON<br/>Validate before opening"]
+    S -. "Failed save or competing tab" .-> F["Keep the tab open<br/>Visible status and JSON backup<br/>Conflicts never overwrite"]
+  end
+  B -->|"After Start and each Next"| S
+  E -->|"JSON import"| R
+  subgraph DELIVERY["DESIGN AND DELIVERY — verification before publishing"]
+    direction LR
+    G["Figma reference<br/>Editable project diagram"] -. "Manual edits" .-> H["Repository<br/>HTML, CSS, JavaScript<br/>Pull request / main / manual"]
+    H --> I["Verify on Node.js 22 and 24<br/>Install, vendor check<br/>Browser tests, dependency audit"]
+    I -->|"Both jobs pass; main only"| J["Prepare the site<br/>Runtime pages and assets<br/>License and instrument notices"]
+    J --> K["GitHub Pages<br/>Upload and deploy<br/>Open the bilingual app"]
+  end
+  classDef app fill:#1c282f,stroke:#54bfd8,color:#edf4f6,stroke-width:2px;
+  classDef save fill:#1c282f,stroke:#88c8b0,color:#edf4f6,stroke-width:2px;
+  classDef problem fill:#1c282f,stroke:#efa17d,color:#edf4f6,stroke-width:2px,stroke-dasharray:6 4;
+  classDef ship fill:#1c282f,stroke:#8eabb8,color:#edf4f6,stroke-width:2px;
+  class A,B,C,D,E app;
+  class S,V,R save;
+  class F problem;
+  class G,H,I,J,K ship;
+  style APP fill:#151d22,stroke:#344b54,color:#edf4f6;
+  style RECOVERY fill:#151d22,stroke:#344b54,color:#edf4f6;
+  style DELIVERY fill:#151d22,stroke:#344b54,color:#edf4f6;
