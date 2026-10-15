@@ -863,6 +863,10 @@
       "alertPdfError", "alertPdfEncoding", "configError", "resultsHeading", "participantLabel2", "durationLabel",
       "minutes", "colScale", "colSubscale", "colScore", "colRange", "colInterpretation",
       "totalLabel", "resultsTableCaption", "descriptionLabel", "invalidSession", "invalidResults",
+      "resultsEyebrow", "resultsChartsHeading", "resultsChartsDescription", "resultsQuestionnaires",
+      "resultsResponses", "resultsDuration", "resultsTableHeading", "resultsTableDescription",
+      "resultsChartValue", "resultsMidpoint", "resultsHadsNote", "resultsBfiNote", "resultsRawNote",
+      "resultsDownloadsHeading", "resultsDownloadsDescription", "resultsRetentionHeading",
       "rawScoreLabel", "csvSessionTitle", "csvParticipant", "csvDuration", "csvTestsCompleted",
       "csvLanguage", "csvRevision", "csvStarted", "csvCompleted", "csvGenerated", "csvForm",
       "csvSource", "csvNotice", "csvDisclaimer", "csvSummaryTitle", "csvSummaryHeaders",
@@ -1185,32 +1189,111 @@
     bar.style.width = progress + "%";
     bar.setAttribute("aria-valuenow", String(progress));
   }
+  function chartElement(tag, attributes) {
+    var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.keys(attributes).forEach(function (key) { node.setAttribute(key, attributes[key]); });
+    return node;
+  }
+  function scoreChart(row) {
+    var range = scoreRange(row.test, row.key);
+    var score = Number(row.score);
+    var offset = (score - range[0]) / (range[1] - range[0]) * 480;
+    var description = row.test + ", " + row.label + ". " + ui.resultsChartValue
+      .replace("{score}", row.score).replace("{min}", formatScoreValue(range[0])).replace("{max}", formatScoreValue(range[1]));
+    var midpoint = row.test === "BFI" ? (range[0] + range[1]) / 2 : null;
+    if (midpoint !== null) description += " " + ui.resultsMidpoint + ": " + formatScoreValue(midpoint) + ".";
+    var chart = chartElement("svg", { class: "score-chart", viewBox: "0 0 560 44", role: "img", "aria-label": description, focusable: "false" });
+    chart.appendChild(chartElement("rect", { class: "chart-track", x: 40, y: 18, width: 480, height: 8, rx: 4 }));
+    chart.appendChild(chartElement("rect", { class: "chart-fill", x: 40, y: 18, width: offset, height: 8, rx: 4 }));
+    if (midpoint !== null) chart.appendChild(chartElement("line", { class: "chart-midpoint", x1: 280, x2: 280, y1: 8, y2: 36 }));
+    chart.appendChild(chartElement("circle", { class: "chart-marker", cx: 40 + offset, cy: 22, r: 7 }));
+    var node = el("div", {
+      className: "chart-row", "data-test": row.test, "data-subscale": row.key,
+      "data-score": score, "data-min": range[0], "data-max": range[1],
+    }, [
+      el("div", { className: "chart-row-heading" }, [
+        el("span", { className: "chart-label", text: row.label }),
+        el("strong", { className: "chart-value", text: row.score }),
+      ]),
+      chart,
+      el("div", { className: "chart-axis", "aria-hidden": "true" }, [
+        el("span", { text: formatScoreValue(range[0]) }),
+        el("span", { text: midpoint === null ? "" : formatScoreValue(midpoint), title: midpoint === null ? "" : ui.resultsMidpoint }),
+        el("span", { text: formatScoreValue(range[1]) }),
+      ]),
+    ]);
+    if (row.test === "HADS") node.appendChild(el("p", { className: "chart-interpretation" }, [
+      el("span", { className: interpClass(row.interpretation), text: row.interpretation }),
+    ]));
+    return node;
+  }
+  function resultCard(test, rows) {
+    var note = ui.resultsRawNote;
+    if (test.name === "HADS") note = ui.resultsHadsNote;
+    if (test.name === "BFI") note = ui.resultsBfiNote;
+    var titleId = "result-" + test.name;
+    return el("section", { className: "result-card", "data-test": test.name, "aria-labelledby": titleId }, [
+      el("div", { className: "result-card-header" }, [
+        el("h4", { id: titleId, text: test.name }),
+        el("p", { className: "result-form", text: config.testMetadata[test.name].form }),
+      ]),
+      el("div", { className: "result-card-charts" }, rows.map(scoreChart)),
+      el("p", { className: "result-note", text: note }),
+    ]);
+  }
   function displayResults(summary) {
     var area = $("#results-area");
     empty(area);
     var heading = el("h2", { tabindex: "-1", text: ui.resultsHeading });
-    area.appendChild(heading);
-    if (state.participantId) area.appendChild(el("p", { className: "participant-id", text: ui.participantLabel2 + " " + state.participantId }));
-    area.appendChild(el("p", { text: ui.durationLabel + " " + sessionMinutes(1) + " " + ui.minutes }));
-    var table = el("table", { className: "table table-bordered" });
+    var header = el("header", { className: "results-header" }, [el("p", { className: "results-eyebrow", text: ui.resultsEyebrow }), heading]);
+    if (state.participantId) header.appendChild(el("p", { className: "participant-id", text: ui.participantLabel2 + " " + state.participantId }));
+    area.appendChild(header);
+    var metadata = [
+      [ui.resultsQuestionnaires, state.tests.length],
+      [ui.resultsResponses, state.answers.length],
+      [ui.resultsDuration, sessionMinutes(1) + " " + ui.minutes],
+    ];
+    area.appendChild(el("dl", { className: "results-meta" }, metadata.map(function (item) {
+      return el("div", { className: "results-meta-item" }, [el("dt", { text: item[0] }), el("dd", { text: item[1] })]);
+    })));
+    var rows = summaryRows(summary);
+    var charts = el("section", { "aria-labelledby": "results-charts-heading" }, [
+      el("h3", { id: "results-charts-heading", text: ui.resultsChartsHeading }),
+      el("p", { className: "results-intro", text: ui.resultsChartsDescription }),
+      el("div", { className: "results-grid" }, state.tests.map(function (test) {
+        return resultCard(test, rows.filter(function (row) { return row.test === test.name; }));
+      })),
+    ]);
+    area.appendChild(charts);
+    var table = el("table", { className: "table results-table" });
     table.appendChild(el("caption", { className: "visually-hidden", text: ui.resultsTableCaption }));
     var head = el("tr");
     [ui.colScale, ui.colSubscale, ui.colScore, ui.colRange, ui.colInterpretation].forEach(function (label) { head.appendChild(el("th", { scope: "col", text: label })); });
     table.appendChild(el("thead", null, [head]));
     var body = el("tbody");
-    summaryRows(summary).forEach(function (row) {
-      var cells = [row.test, row.label, row.score, row.range].map(function (value) { return el("td", { text: value }); });
-      var interpretation = el("td", { text: row.interpretation });
+    rows.forEach(function (row) {
+      var cells = [
+        el("td", { text: row.test }), el("th", { scope: "row", text: row.label }),
+        el("td", { text: row.score }), el("td", { text: row.range }),
+      ];
+      var interpretation = el("td");
       var color = row.test === "HADS" ? interpClass(row.interpretation) : "";
-      if (color) interpretation.classList.add(color);
+      interpretation.appendChild(el("span", { className: color, text: row.interpretation }));
       cells.push(interpretation);
       body.appendChild(el("tr", null, cells));
     });
     table.appendChild(body);
-    area.appendChild(el("div", { className: "table-responsive" }, [table]));
-    area.appendChild(el("div", { className: "disclaimer", text: ui.disclaimer }));
+    area.appendChild(el("section", { className: "results-table-section", "aria-labelledby": "results-table-heading" }, [
+      el("h3", { id: "results-table-heading", text: ui.resultsTableHeading }),
+      el("p", { text: ui.resultsTableDescription }),
+      el("div", { className: "table-responsive", role: "region", "aria-labelledby": "results-table-heading", tabindex: "0" }, [table]),
+    ]));
+    area.appendChild(el("div", { className: "results-footer" }, [el("div", { className: "disclaimer", text: ui.disclaimer })]));
     if (state.testEndTime) {
-      area.appendChild(el("p", { className: "consent-text", text: ui.completedRetention }));
+      var retention = el("section", { className: "results-retention", "aria-labelledby": "results-retention-heading" }, [
+        el("h3", { id: "results-retention-heading", text: ui.resultsRetentionHeading }),
+        el("p", { text: ui.completedRetention }),
+      ]);
       var start = el("button", { id: "newSessionBtn", type: "button", className: "btn btn-outline-secondary", text: ui.clearResultsStartBtn });
       var generation = sessionGeneration;
       start.addEventListener("click", function () {
@@ -1225,7 +1308,8 @@
           }
         });
       });
-      area.appendChild(start);
+      retention.appendChild(start);
+      area.appendChild(retention);
     }
     show(area);
     heading.focus();
@@ -1451,6 +1535,12 @@
     if ($("h1")) $("h1").textContent = ui.heading;
     $("#downloadCsv").textContent = ui.downloadCsvBtn;
     $("#downloadPdf").textContent = ui.downloadPdfBtn;
+    var downloads = $("#download-buttons");
+    downloads.setAttribute("aria-labelledby", "results-downloads-heading");
+    downloads.prepend(
+      el("h3", { id: "results-downloads-heading", text: ui.resultsDownloadsHeading }),
+      el("p", { text: ui.resultsDownloadsDescription })
+    );
     showStoredSession();
     document.addEventListener("keydown", function (event) {
       if (!state.testInProgress || event.metaKey || event.ctrlKey || event.altKey) return;
