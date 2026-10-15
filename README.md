@@ -24,6 +24,8 @@ Scores do not establish a diagnosis. HADS provides screening bands; BFI-10 descr
 
 English STAI uses Forms X-1/X-2. French STAI uses Forms Y-1/Y-2, with different scoring keys. The French BFI-10 follows [Courtois et al. (2020)](https://www.em-consulte.com/article/1361431). The [instrument rights and source notes](NOTICE.md) cover permissions and the FQ scoring convention.
 
+The results page shows each score on its own possible range, followed by a table of exact values and interpretations. Chart positions are not percentiles.
+
 CSV and PDF reports include submitted responses, optional FQ descriptions, scores, questionnaire forms, revision and timestamps. PDF cannot represent every character; use the UTF-8 CSV to retain unsupported characters.
 
 ## Saving and recovery
@@ -39,7 +41,9 @@ An unreadable or incompatible save remains unchanged. Download its original data
 Browser saves contain sensitive responses and have no automatic expiry. Downloads leave the browser copy saved. **Clear app data** ends the current session and removes both language saves. Other clear controls remove the displayed language's save. Failed or unverified deletion is reported. Clearing responses leaves downloaded files and coordination metadata, which contains no participant IDs or responses. Clearing this site's data in browser settings removes its browser storage. Browsers can also clear storage independently; keep a separate backup when the data matters.
 
 <img src="outputs/setup.jpg" alt="English setup with questionnaire selections and storage controls" width="960">
-<img src="outputs/results.jpg" alt="Example results from synthetic responses, with score ranges and CSV/PDF downloads" width="960">
+<img src="outputs/results.jpg" alt="English results from synthetic responses, with questionnaire charts, exact score table and download controls" width="960">
+
+[View the French results example](outputs/results-fr.jpg).
 
 ## Development
 
