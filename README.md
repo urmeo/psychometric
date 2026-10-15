@@ -2,6 +2,12 @@
 
 Psychometric runs five questionnaires in English or French, with 88 items in total. Choose one or more questionnaires, answer each item, then view scores and download a CSV or PDF report. Scoring runs in the browser. Responses are not uploaded.
 
+![Project pipeline: app use, saving and recovery, and design through tested deployment](docs/design/pipeline.svg)
+
+[Open in Figma / FigJam](https://www.figma.com/board/alZQw9y4qKnjlBXoksGf26) · [SVG diagram](docs/design/pipeline.svg) · [Diagram source](docs/design/pipeline.mmd)
+
+Follow the top row to use the app. Saving and recovery run alongside it. The bottom row shows how design changes reach GitHub Pages after both verification jobs pass.
+
 ## Run the app
 
 Use the [hosted app](https://urmeo.github.io/psychometric/), or download this repository and open `index.html`. No installation, build or server is required to use it. Automatic saving depends on browser support and storage access; check the saving status before closing the tab.
