@@ -24,6 +24,15 @@ async function settled(page) {
   await page.evaluate(() => window.__TEST__.whenPersistenceSettled());
 }
 
+async function holdStorageLock(page) {
+  await page.evaluate((lockName) => new Promise((resolve) => {
+    navigator.locks.request(lockName, () => new Promise((release) => {
+      window.releaseTestLock = release;
+      resolve();
+    }));
+  }), STORAGE_LOCK);
+}
+
 async function start(page, participant = "persistence fixture") {
   await page.evaluate((participantId) => {
     document.getElementById("participantIdInput").value = participantId;
@@ -218,26 +227,20 @@ async function resumeSameSession(first, second) {
   await settled(second);
   const baseline = await status(first);
   assert.equal((await status(second)).raw, baseline.raw, "two tabs resume exact same storage revision");
-  return baseline;
 }
 
 async function concurrentCase(context, origin, lang) {
   const first = await openPage(context, origin, lang);
   const second = await openPage(context, origin, lang, { ignoreStorageEvents: true });
   await resumeSameSession(first, second);
-  await first.evaluate((lockName) => new Promise((resolve) => {
-    navigator.locks.request(lockName, () => new Promise((release) => {
-      window.releaseTestLock = release;
-      resolve();
-    }));
-  }), STORAGE_LOCK);
+  await holdStorageLock(first);
   for (const [page, option] of [[first, 0], [second, 1]]) {
     await page.evaluate((selectedOption) => {
       const T = window.__TEST__;
       document.getElementById("option" + selectedOption).click();
       if (!T.recordAnswer()) throw new Error("Could not prepare concurrent response");
       T.state.currentQuestionIndex++;
-      window.concurrentSave = T.saveProgress();
+      T.saveProgress();
     }, option);
   }
   await first.evaluate(() => window.releaseTestLock());
@@ -277,12 +280,7 @@ async function queuedSameTabSavesCase(context, origin, lang) {
   const page = await openPage(context, origin, lang);
   await page.evaluate(() => window.__TEST__.clearAllData());
   await start(page);
-  await page.evaluate((lockName) => new Promise((resolve) => {
-    navigator.locks.request(lockName, () => new Promise((release) => {
-      window.releaseTestLock = release;
-      resolve();
-    }));
-  }), STORAGE_LOCK);
+  await holdStorageLock(page);
   await page.evaluate(() => {
     const T = window.__TEST__, C = window.CONFIG;
     window.savedStatusSnapshots = [];
@@ -317,15 +315,10 @@ async function queuedClearCase(context, origin, lang) {
   const page = await openPage(context, origin, lang);
   await page.evaluate(() => window.__TEST__.clearAllData());
   await start(page);
-  await page.evaluate((lockName) => new Promise((resolve) => {
-    navigator.locks.request(lockName, () => new Promise((release) => {
-      window.releaseTestLock = release;
-      resolve();
-    }));
-  }), STORAGE_LOCK);
-  await page.evaluate(() => { window.pendingSaveBeforeClear = window.__TEST__.saveProgress(); });
+  await holdStorageLock(page);
+  await page.evaluate(() => { window.__TEST__.saveProgress(); });
   // Let the old save request reach the held lock before Clear invalidates its generation.
-  await page.evaluate(() => { window.pendingClear = window.__TEST__.clearAllData(); });
+  await page.evaluate(() => { window.__TEST__.clearAllData(); });
   await page.evaluate(() => window.releaseTestLock());
   await settled(page);
   const cleared = await page.evaluate(() => ({
@@ -546,13 +539,8 @@ async function completedConflictCase(context, origin, lang) {
   const second = await openPage(context, origin, lang, { ignoreStorageEvents: true });
   await click(second, "#resumeBtn");
   await settled(second);
-  await first.evaluate((lockName) => new Promise((resolve) => {
-    navigator.locks.request(lockName, () => new Promise((release) => {
-      window.releaseTestLock = release;
-      resolve();
-    }));
-  }), STORAGE_LOCK);
-  await second.evaluate(() => { window.newerRevisionSave = window.__TEST__.saveProgress(); });
+  await holdStorageLock(first);
+  await second.evaluate(() => { window.__TEST__.saveProgress(); });
   await click(first, "#option0");
   await click(first, "#nextBtn");
   await first.evaluate(() => window.releaseTestLock());

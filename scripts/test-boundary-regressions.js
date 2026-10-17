@@ -86,7 +86,7 @@ async function clockRollbackCase(context, origin, lang) {
     }));
   }));
   await page.evaluate(() => {
-    window.pendingAuditSave = window.__TEST__.saveProgress();
+    window.__TEST__.saveProgress();
     window.auditClockOffset = -120000;
     window.releaseAuditLock();
   });

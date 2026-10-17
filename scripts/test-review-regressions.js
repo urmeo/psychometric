@@ -309,25 +309,10 @@ module.exports = async function runReviewRegressions(browser) {
   try {
     console.log("\n--- Review regressions: recovery prompt storage pairing ---");
     for (const lang of ["en", "fr"]) {
-      const page = await context.newPage();
-      page.on("dialog", (dialog) => dialog.accept());
-      await page.evaluateOnNewDocument(() => { window.__TEST__ = {}; window.alert = () => {}; });
-      await page.goto(origin + "/" + lang + "/index.html", { waitUntil: "domcontentloaded" });
-      await page.evaluate(async () => {
-        document.getElementById("participantIdInput").value = "prompt race participant";
-        document.querySelectorAll(".test-checkbox").forEach((box) => {
-          box.checked = window.CONFIG.tests[Number(box.value)].name === "HADS";
-        });
-        document.getElementById("nextBtn").click();
-        await window.__TEST__.whenPersistenceSettled();
-      });
+      const page = await open(context, origin, lang);
+      await startSession(page, "prompt race participant");
       for (let i = 0; i < 2; i++) {
-        await page.waitForFunction(() => !document.getElementById("nextBtn").disabled);
-        await page.evaluate(async () => {
-          document.getElementById("option1").click();
-          document.getElementById("nextBtn").click();
-          await window.__TEST__.whenPersistenceSettled();
-        });
+        await submitAnswer(page);
         if (i === 0) await page.evaluate(() => { window.raceOldRaw = localStorage.getItem(window.CONFIG.storageKey); });
       }
       const records = await page.evaluate(() => ({ old: window.raceOldRaw, newer: localStorage.getItem(window.CONFIG.storageKey) }));
@@ -416,6 +401,3 @@ module.exports = async function runReviewRegressions(browser) {
     await new Promise((resolve) => server.close(resolve));
   }
 };
-
-module.exports.memoryOnlyClearCases = memoryOnlyClearCases;
-module.exports.clockRollbackAfterClearCase = clockRollbackAfterClearCase;

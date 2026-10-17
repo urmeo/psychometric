@@ -431,7 +431,7 @@ async function resetDuringAuthorityWorkCase(context, origin, lang) {
   await page.waitForFunction(() => window.auditDigestEntered);
   const lockHeld = await page.evaluate(async () => (await navigator.locks.query()).held.some((lock) => lock.name === "psychometric-session-storage"));
   assert.equal(lockHeld, true, `${lang}: the cancellation fixture holds the storage lock before resetting`);
-  await page.evaluate(() => { window.pendingAuditClear = window.__TEST__.clearAllData(); });
+  await page.evaluate(() => { window.__TEST__.clearAllData(); });
   await page.evaluate(() => { window.restoreAuditDigest(); window.releaseAuditDigest(); });
   await settled(page);
   const cleared = await inspect(page);
@@ -532,6 +532,3 @@ module.exports = async function runAuthorityRegressions(browser) {
     await new Promise((resolve) => server.close(resolve));
   }
 };
-
-module.exports.staleConcurrentWritersCase = staleConcurrentWritersCase;
-module.exports.staleClearGenerationCase = staleClearGenerationCase;
