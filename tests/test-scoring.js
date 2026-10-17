@@ -15,8 +15,8 @@
     }
   }
 
-  function approxEqual(a, b, eps) {
-    return Math.abs(a - b) < (eps || 0.001);
+  function approxEqual(a, b) {
+    return Math.abs(a - b) < 0.001;
   }
 
   function renderResults() {
@@ -306,15 +306,13 @@
     });
 
     var ic = T.interpClass;
-    assert(ic("Abnormal") === "interp-abnormal", "interpClass: Abnormal not misread as normal");
-    assert(ic("Anormal") === "interp-abnormal", "interpClass: French Anormal -> abnormal");
-    assert(ic("High anxiety") === "interp-abnormal", "interpClass: High -> abnormal");
-    assert(ic("Severe") === "interp-abnormal", "interpClass: Severe -> abnormal");
-    assert(ic("Borderline") === "interp-moderate", "interpClass: Borderline -> moderate");
-    assert(ic("Moderate anxiety") === "interp-moderate", "interpClass: Moderate -> moderate");
-    assert(ic("Average") === "interp-moderate", "interpClass: Average -> moderate");
-    assert(ic("Normal") === "interp-normal", "interpClass: Normal -> normal");
-    assert(ic("Low anxiety") === "interp-normal", "interpClass: Low -> normal");
+    ["Anxiety", "Depression"].forEach(function (subscale) {
+      C.thresholds.HADS[subscale].ranges.forEach(function (range, index) {
+        var expectedClass = ["interp-normal", "interp-moderate", "interp-abnormal"][index];
+        assert(ic(range[2]) === expectedClass, "interpClass: configured HADS " + subscale + " band " + (index + 1) + " uses its screening color");
+      });
+    });
+    assert(ic("High anxiety, severe or abnormal") === "", "interpClass: unknown clinical-sounding labels carry no screening color");
     assert(ic("") === "", "interpClass: empty label -> no class");
 
     state.tests = C.tests.slice();

@@ -294,7 +294,6 @@
     var baseline = await ensureAuthority(storageSnapshot);
     var current = await readAuthority(config.storageKey);
     if (authorityEpoch(current) !== authorityEpoch(baseline)) throw authorityConflict(current, baseline);
-    return true;
   }
   async function authorityAccess(raw, backup) {
     var baseline = await ensureAuthority(raw);
@@ -754,8 +753,9 @@
     var testsByName = {};
     var expectedAnswerCount = 0;
     state.tests.forEach(function (test) {
-      if (!testByName(test.name) || testsByName[test.name]) throw new Error(ui.invalidResults);
-      testsByName[test.name] = testByName(test.name);
+      var configuredTest = testByName(test.name);
+      if (!configuredTest || testsByName[test.name]) throw new Error(ui.invalidResults);
+      testsByName[test.name] = configuredTest;
       expectedAnswerCount += test.questions.length;
     });
     if (state.answers.length !== expectedAnswerCount) throw new Error(ui.invalidResults);
@@ -807,10 +807,6 @@
     for (var i = 0; i < hads.length; i++) {
       if (label === hads[i][2]) return ["interp-normal", "interp-moderate", "interp-abnormal"][i];
     }
-    var value = label.toLowerCase();
-    if (/abnormal|anormal|high|severe|élevé|sévère/.test(value)) return "interp-abnormal";
-    if (/moderate|borderline|average|modéré|limite|moyen/.test(value)) return "interp-moderate";
-    if (/normal|low|mild|faible|léger/.test(value)) return "interp-normal";
     return "";
   }
   function scoreRange(testName, subscale) {
@@ -859,8 +855,8 @@
       "retrySaveBtn", "downloadBackupBtn", "restoreBackupLabel", "backupDownloadFailed",
       "invalidBackup", "backupRestoreConflict", "backupRestored",
       "selectTests", "items", "resumeFound", "resumeParticipant", "resumeAnswers", "resumeBtn",
-      "newSessionBtn", "alertSelectTest", "alertAnswer", "alertCsvFail", "alertPdfFail",
-      "alertPdfError", "alertPdfEncoding", "configError", "resultsHeading", "participantLabel2", "durationLabel",
+      "alertSelectTest", "alertAnswer", "alertCsvFail", "alertPdfFail",
+      "alertPdfError", "alertPdfEncoding", "configError", "resultsHeading", "participantLabel2",
       "minutes", "colScale", "colSubscale", "colScore", "colRange", "colInterpretation",
       "totalLabel", "resultsTableCaption", "descriptionLabel", "invalidSession", "invalidResults",
       "resultsEyebrow", "resultsChartsHeading", "resultsChartsDescription", "resultsQuestionnaires",
@@ -1011,7 +1007,7 @@
     if (snapshot.participantId) message += " (" + ui.resumeParticipant + ": " + snapshot.participantId + ")";
     message += ": " + snapshot.answers.length + " " + ui.resumeAnswers;
     var resume = el("button", { id: "resumeBtn", className: "btn btn-primary me-2", text: completed ? ui.viewResultsBtn : ui.resumeBtn });
-    var start = el("button", { id: "newSessionBtn", className: "btn btn-outline-secondary", text: completed ? ui.clearResultsStartBtn : ui.newSessionBtn });
+    var start = el("button", { id: "newSessionBtn", className: "btn btn-outline-secondary", text: completed ? ui.clearResultsStartBtn : ui.clearSavedStartBtn });
     area.appendChild(el("div", { className: "resume-prompt" }, [el("p", { text: message }), resume, start]));
     if (completed) area.appendChild(el("p", { className: "consent-text", text: ui.completedRetention }));
     hide($("#nextBtn"));

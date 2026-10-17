@@ -7,10 +7,7 @@
   --color-resume-border: #007bff;
 }
 
-body,
-h1,
-h2,
-p {
+body {
   font-family: Arial, sans-serif;
 }
 
