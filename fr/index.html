@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+  <meta name="description" content="Remplissez les questionnaires HADS, STAI, BFI-10 et des peurs dans votre navigateur. Consultez les scores et téléchargez les résultats en CSV ou PDF." />
+  <title>Questionnaires psychom&#233;triques</title>
+  <link rel="stylesheet" href="../assets/vendor/bootstrap.min.css" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <main class="container">
+    <h1 class="text-center">Questionnaires psychom&#233;triques</h1>
+    <div id="setup-area"></div>
+    <div id="progress-container" class="progress mb-4 hidden">
+      <div class="progress-bar" role="progressbar" aria-label="Progression" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    </div>
+    <div id="instruction-area" class="mb-4"></div>
+    <div id="test-area" class="question-container" aria-live="polite"></div>
+    <button id="nextBtn" class="btn btn-primary btn-lg hidden">Commencer</button>
+    <div id="results-area" class="hidden"></div>
+    <div id="download-buttons" class="hidden mt-3">
+      <button id="downloadCsv" class="btn btn-success btn-lg me-2">T&#233;l&#233;charger CSV</button>
+      <button id="downloadPdf" class="btn btn-primary btn-lg">T&#233;l&#233;charger PDF</button>
+    </div>
+    <div class="mt-4 text-center">
+      <button id="clearDataBtn" class="btn btn-link btn-sm text-muted">Effacer les donn&#233;es de l'application</button>
+    </div>
+  </main>
+  <script src="../assets/vendor/jspdf.umd.min.js"></script>
+  <script src="../assets/lang/fr.js"></script>
+  <script src="../assets/js/app.js"></script>
+</body>
+</html>

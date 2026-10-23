@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="310" viewBox="0 0 1200 310" role="img" aria-labelledby="title" aria-describedby="description">
+  <title id="title">Psychometric: answer, review and download</title>
+  <desc id="description">Choose a language and questionnaires, then Start and submit answers with Next. Review scores after the final answer. Download CSV or PDF reports, or a JSON session backup. JSON backups are available after Start. Check saving status; if saving fails or conflicts, keep the tab open and download JSON. Scoring does not depend on successful saving.</desc>
+  <rect width="1200" height="310" fill="#10171b"/>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <g id="answer" data-card="answer">
+      <rect x="40" y="24" width="352" height="164" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+      <text x="60" y="68" font-size="27" font-weight="700" fill="#edf4f6">1  Choose and answer</text>
+      <text x="60" y="110" font-size="22" fill="#b0c2cb">Choose language and tests</text>
+      <text x="60" y="144" font-size="22" fill="#b0c2cb">Start, then submit with Next</text>
+    </g>
+    <g id="review" data-card="review">
+      <rect x="424" y="24" width="352" height="164" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+      <text x="444" y="68" font-size="27" font-weight="700" fill="#edf4f6">2  Review scores</text>
+      <text x="444" y="110" font-size="22" fill="#b0c2cb">After the final answer</text>
+      <text x="444" y="144" font-size="22" fill="#b0c2cb">Charts and score table</text>
+    </g>
+    <g id="download" data-card="download">
+      <rect x="808" y="24" width="352" height="164" rx="10" fill="#1b272e" stroke="#55c5df" stroke-width="2"/>
+      <text x="828" y="68" font-size="27" font-weight="700" fill="#edf4f6">3  Download</text>
+      <text x="828" y="110" font-size="22" fill="#b0c2cb">CSV / PDF reports</text>
+      <text x="828" y="144" font-size="22" fill="#b0c2cb">JSON session backup</text>
+    </g>
+    <path d="M 396 106 H 420" stroke="#55c5df" stroke-width="3"/>
+    <path d="M 420 106 L 410 100 L 410 112 Z" fill="#55c5df"/>
+    <path d="M 780 106 H 804" stroke="#55c5df" stroke-width="3"/>
+    <path d="M 804 106 L 794 100 L 794 112 Z" fill="#55c5df"/>
+    <text x="40" y="236" font-size="22" fill="#b0c2cb">Check saving status. JSON backups are available after Start.</text>
+    <text x="40" y="274" font-size="22" fill="#f2ad8e">If saving fails or conflicts, keep this tab open and download JSON.</text>
+  </g>
+</svg>

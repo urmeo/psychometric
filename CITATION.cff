@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Psychometric: bilingual questionnaire scoring and exports"
+authors:
+  - given-names: urme
+repository-code: "https://github.com/urmeo/psychometric"
+url: "https://github.com/urmeo/psychometric"
+license: MIT
+date-released: "2026-02-23"
+keywords:
+  - psychometrics
+  - bilingual
+  - scoring
+  - export

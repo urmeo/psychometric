@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scoring Tests: English</title>
+  <link rel="stylesheet" href="../assets/vendor/bootstrap.min.css" />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+</head>
+<body>
+  <div class="container" role="main">
+    <h1 class="text-center">Scoring Unit Tests (EN)</h1>
+    <div id="setup-area"></div>
+    <div id="progress-container" class="progress mb-4 hidden">
+      <div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%;"></div>
+    </div>
+    <div id="instruction-area" class="mb-4"></div>
+    <div id="test-area" class="question-container" aria-live="polite"></div>
+    <button id="nextBtn" class="btn btn-primary btn-lg hidden">Start</button>
+    <div id="results-area" class="hidden"></div>
+    <div id="download-buttons" class="hidden mt-3">
+      <button id="downloadCsv" class="btn btn-success btn-lg me-2">Download CSV</button>
+      <button id="downloadPdf" class="btn btn-primary btn-lg">Download PDF</button>
+    </div>
+    <button id="clearDataBtn" class="btn btn-link">Clear app data</button>
+    <hr />
+    <div id="test-results"></div>
+  </div>
+  <script>window.__TEST__ = {};</script>
+  <script src="../assets/vendor/jspdf.umd.min.js"></script>
+  <script src="../assets/lang/en.js"></script>
+  <script src="../assets/js/app.js"></script>
+  <script src="test-browser.js"></script>
+  <script src="test-scoring.js"></script>
+</body>
+</html>

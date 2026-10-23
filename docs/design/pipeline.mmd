@@ -1,0 +1,14 @@
+flowchart TB
+  accTitle: Psychometric questionnaire pipeline
+  accDescr: Choose a language and questionnaires, submit answers, review completed scores and download reports. Check saving status and keep a JSON backup if saving fails.
+  subgraph FLOW[" "]
+    direction LR
+    A["1 Choose and answer<br/>Choose language and tests<br/>Start, then submit with Next"] --> B["2 Review scores<br/>After the final answer<br/>Charts and score table"]
+    B --> C["3 Download<br/>CSV / PDF reports<br/>JSON session backup"]
+  end
+  N["Check saving status. JSON backups are available after Start.<br/>If saving fails or conflicts, keep this tab open and download JSON."]
+  FLOW ~~~ N
+  classDef step fill:#1b272e,stroke:#55c5df,color:#edf4f6,stroke-width:2px;
+  class A,B,C step;
+  style FLOW fill:none,stroke:none;
+  style N fill:none,stroke:none,color:#b0c2cb;
